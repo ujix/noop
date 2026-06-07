@@ -11,6 +11,10 @@ sponsorship, or endorsement, and never as the name of this project's own product
 "WHOOP" and any related marks are the property of WHOOP, Inc. All other trademarks belong to
 their respective owners.
 
+**Use it only with a device you own, and do not use this project in breach of any agreement that
+applies to you.** This software does not encourage or require you to violate any terms you have
+agreed to; how you use hardware you own is your responsibility.
+
 ## 2. No proprietary material is contained or redistributed
 
 This repository contains **only original work** authored by the project's contributors, plus

@@ -5,20 +5,20 @@
 NOOP is a standalone, fully offline companion app for WHOOP straps (4.0 and
 5.0). It pairs directly with the strap over Bluetooth, stores everything on your
 own device in SQLite, imports your existing WHOOP CSV and Apple Health history,
-and computes recovery, strain, HRV, and sleep locally — no WHOOP account, no
-cloud, no subscription. That includes every feature: live data, breathing
+and computes recovery, strain, HRV, and sleep locally, with no WHOOP account and
+no cloud. That includes every feature: live data, breathing
 biofeedback, the haptic interval timer, automations, importing your whole
 history, and all of the analytics. There is no "pro" tier, no trial, no locked
 screen, and no nag. The app never asks you to pay to do anything.
 
-This page exists only because people kept asking how to chip in. If the app
-saved you a subscription and you *want* to, you can. If you don't, nothing
-changes — and you'll never be asked twice. The same addresses are shown in-app
+This page exists only because people kept asking how to chip in. If it's useful
+to you and you *want* to, you can. If you don't, nothing changes, and you'll
+never be asked twice. The same addresses are shown in-app
 under the **Support** screen, each with a scan-to-donate QR code.
 
 **Honestly, though — if you can, please do.** Keeping NOOP free, anonymous, and
-off the cloud means there's no company, no subscription, and no investor behind
-it — just one person covering the bills out of pocket. A little support genuinely
+off the cloud means there's no company and no investor behind it, just one person
+covering the bills out of pocket. A little support genuinely
 decides whether the Windows, Android, and iOS builds get finished, and it's the
 difference between this being a one-off and an ongoing thing. **Crypto is the
 only way to contribute, on purpose:** staying anonymous rules out PayPal,

@@ -301,7 +301,7 @@ bundle of CSV files, but the same defensive posture applies.
 
 ## 4. What NOOP does *not* collect or transmit
 
-- **No accounts, no login, no subscription.** Nothing to sign into; no credentials
+- **No accounts, no login.** Nothing to sign into; no credentials
   stored.
 - **No telemetry / analytics / crash reporting.** No third-party SDKs of that kind.
 - **No cloud, no sync, no remote backup.** Your data never leaves the machine via

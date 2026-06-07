@@ -1,7 +1,7 @@
 # BLE Reverse Engineering
 
-How NOOP talks to a WHOOP strap directly over Bluetooth Low Energy — no WHOOP cloud, no account,
-no subscription. This document explains how the strap's private GATT protocol was understood, how the
+How NOOP talks to a WHOOP strap directly over Bluetooth Low Energy — no WHOOP cloud and no account.
+This document explains how the strap's private GATT protocol was understood, how the
 frame format and checksums work, how WHOOP 4.0 ("Harvard") and WHOOP 5.0 ("puffin") differ, what each
 data stream contains, and how to extend the decoder for new packet types or sensors.
 

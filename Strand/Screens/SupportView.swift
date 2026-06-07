@@ -9,7 +9,7 @@ struct SupportView: View {
 
     var body: some View {
         ScreenScaffold(title: "Support",
-                       subtitle: "\(ProjectInfo.appName) is free and always will be. If it saved you a subscription, you can chip in — totally optional.") {
+                       subtitle: "\(ProjectInfo.appName) is free and always will be. If it's useful to you, you can chip in to help with development and testing costs. Totally optional.") {
             builtOnCard
             donateCard
             contactCard
@@ -65,7 +65,7 @@ struct SupportView: View {
                     Text("Support the build").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                     Spacer()
                 }
-                Text("NOOP is free and always will be — no subscription, no paywall, nothing locked. But it cost real money and a lot of unpaid hours to build, and there's a Windows app, an Android app and an iOS app I want to ship next. If it saved you a subscription, even a few quid in crypto genuinely keeps it moving — and honestly, it keeps me motivated to keep building.")
+                Text("NOOP is free and always will be, nothing is locked. It cost real money and a lot of unpaid hours to build, and there's a Windows app, an Android app and an iOS app I want to ship next. If it's useful to you and you want to help with the development and testing costs, even a few quid in crypto genuinely keeps it moving, and honestly it keeps me motivated to keep building.")
                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -146,7 +146,7 @@ struct SupportView: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "info.circle.fill").foregroundStyle(StrandPalette.textTertiary)
                     .font(.system(size: 13)).accessibilityHidden(true)
-                Text("Not affiliated with, endorsed by, or connected to WHOOP. Interoperability software for your own device and data. Not a medical device.")
+                Text("Not affiliated with, endorsed by, or connected to WHOOP. Interoperability software for hardware you own and your own data. Use it only with a device you own, and not in breach of any agreement that applies to you. Not a medical device.")
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }

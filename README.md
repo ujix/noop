@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="NOOP — an offline WHOOP companion" width="860">
+  <img src="docs/assets/banner.svg" alt="NOOP — a local-first companion for WHOOP straps" width="860">
 </p>
 
 <h1 align="center">NOOP</h1>
 
-<p align="center"><b>Your strap. Your data. Your machine. No cloud, no subscription.</b></p>
+<p align="center"><b>Your strap. Your data. Your machine. Local-first, no cloud.</b></p>
 
 <p align="center">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Android%20%C2%B7%20iOS-18C98B?style=flat-square">
-  <img alt="Offline by design" src="https://img.shields.io/badge/offline-by%20design-18C98B?style=flat-square">
-  <img alt="No subscription" src="https://img.shields.io/badge/subscription-none-2FE6A8?style=flat-square">
-  <img alt="WHOOP 4 and 5" src="https://img.shields.io/badge/WHOOP-4.0%20%26%205.0-8B9690?style=flat-square">
+  <img alt="Local first" src="https://img.shields.io/badge/local-first-18C98B?style=flat-square">
+  <img alt="Account free" src="https://img.shields.io/badge/account-free-2FE6A8?style=flat-square">
+  <img alt="WHOOP 4 and 5" src="https://img.shields.io/badge/works%20with-WHOOP%204.0%20%26%205.0-8B9690?style=flat-square">
 </p>
 
 <p align="center">
@@ -43,8 +43,8 @@ Everything runs **offline**. The only feature that ever uses the network is the 
 NOOP is a standalone, fully **offline** companion app for WHOOP straps (4.0 and
 5.0). It pairs directly with the strap over Bluetooth, stores everything on your
 own device in SQLite, imports your existing WHOOP and Apple Health history, and
-computes recovery, strain, HRV, and sleep **locally** — with no WHOOP account, no
-WHOOP cloud, and no subscription.
+computes recovery, strain, HRV, and sleep **locally**, with no WHOOP account and
+no WHOOP cloud.
 
 It is built on prior open-source reverse-engineering work and exists for one
 reason: to let someone who owns a WHOOP strap read **their own biometric data**
@@ -52,9 +52,10 @@ from **their own device**, on a machine **they** control.
 
 > **Not affiliated with WHOOP.** NOOP is an independent, unofficial
 > interoperability project. It is not affiliated with, endorsed by, or connected
-> to WHOOP, Inc. "WHOOP" is used only to identify the hardware NOOP talks to.
-> **NOOP is not a medical device** — every derived metric is an approximation, not
-> clinical data. See [`DISCLAIMER.md`](DISCLAIMER.md).
+> to WHOOP, Inc. "WHOOP" is used only to identify the hardware NOOP talks to. Use
+> it only with a device you own, and not in breach of any agreement that applies
+> to you. **NOOP is not a medical device**; every derived metric is an
+> approximation, not clinical data. See [`DISCLAIMER.md`](DISCLAIMER.md).
 
 ---
 
@@ -83,9 +84,9 @@ that premise:
   respiration, accelerometer/gravity, battery, and event data straight off the
   strap over Bluetooth and writes it to a local SQLite database. Nothing is
   uploaded anywhere.
-- **No subscription, no account.** NOOP never logs into a WHOOP account, never
-  hits a WHOOP server, and never asks for a paywall. It does not bypass any login,
-  paywall, or DRM — it simply talks to a device you own.
+- **Account-free and local.** NOOP never logs into a WHOOP account and never hits
+  a WHOOP server. It does not bypass any login, paywall, or DRM; it simply talks to
+  a device you own and reads data you generated.
 - **Bring your history.** Already have years of data in the official app or in
   Apple Health? Import the WHOOP CSV export and/or your Apple Health `export.xml`
   once, and it's permanently on your machine.
@@ -122,7 +123,7 @@ The macOS reference app organizes everything behind a single sidebar
 | **Notifications** | Configure local notifications and thresholds (`Strand/Data/NotificationSettingsStore.swift`). |
 | **Automations** | Turn the strap's physical inputs and live biometrics into Mac actions — all on-device (see below). |
 | **Settings** | Profile, preferences, and app configuration. |
-| **Support** | Attribution + **optional** crypto donations. Never a paywall — the whole app works without it. |
+| **Support** | Attribution + **optional** crypto donations. The whole app works without them. |
 
 There is also a **menu-bar extra** (`Strand/MenuBar/MenuBarContent.swift`) with a
 glanceable live HR readout and a compact popover, and a first-run **onboarding
@@ -349,11 +350,11 @@ no DRM circumvention. Full detail in [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 ## Support (optional)
 
-NOOP is free and always will be — there is no paywall and the app never gates a
-feature behind payment. If it saved you a subscription and you want to chip in,
-optional crypto donation addresses are shown on the in-app **Support** screen and
-listed in [`docs/DONATIONS.md`](docs/DONATIONS.md). Donations are 100% optional and
-the app never asks twice.
+NOOP is free and always will be, and never gates a feature behind payment. If it's
+useful to you and you want to help with the development and testing costs, optional
+crypto donation addresses are shown on the in-app **Support** screen and listed in
+[`docs/DONATIONS.md`](docs/DONATIONS.md). Donations are 100% optional and the app
+never asks twice.
 
 **Contact:** questions, feedback, and bug reports → [thenoopapp@gmail.com](mailto:thenoopapp@gmail.com)
 
