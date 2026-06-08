@@ -601,7 +601,13 @@ public final class BLEManager: NSObject, ObservableObject {
         let epochSec = UInt32(clamping: Int64(date.timeIntervalSince1970))
         send(.setClock, payload: BLEManager.setClockPayload())
         send(.setAlarmTime, payload: WhoopCommand.setAlarmPayload(epochSec: epochSec))
-        log("Alarm: armed for \(date) (epoch \(epochSec))")
+        // Log the wake time in the user's LOCAL zone. `Date` prints in UTC by default, so an alarm
+        // for (say) 07:00 in New York logged as "11:00:00 +0000" reads like a timezone bug — but it
+        // isn't: SET_ALARM_TIME carries the absolute instant of the chosen local time, and the strap
+        // fires at that instant regardless of how its UTC RTC is labelled.
+        let localFmt = DateFormatter()
+        localFmt.dateFormat = "EEE HH:mm zzz"
+        log("Alarm: armed for \(localFmt.string(from: date)) — your local wake time (sent as UTC epoch \(epochSec))")
     }
 
     /// Disarm the currently-armed firmware alarm.
