@@ -237,6 +237,12 @@ fun InsightsScreen(vm: AppViewModel) {
 
         Spacer(Modifier.height(Metrics.sectionGap - 20.dp))
 
+        // --- Mind: daily mood check-in + mood ↔ body correlations (Swift Mind-lane
+        //     mirror; storage contract + footnote shared verbatim across platforms) ---
+        MindSection(vm)
+
+        Spacer(Modifier.height(Metrics.sectionGap - 20.dp))
+
         // --- Behaviour effects -------------------------------------------------
         if (!journalLoaded) {
             NoopCard {

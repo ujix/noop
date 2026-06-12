@@ -120,6 +120,11 @@ struct InsightsView: View {
                                    answers: dayAnswers,
                                    dayOffset: $journalDayOffset,
                                    onChanged: { Task { await load() } })
+                    // Mind — daily mood check-in + mood↔body correlations.
+                    // Self-contained (owns its own load/state); sits with the
+                    // journal card so the two daily-logging surfaces read as one
+                    // "log today" block above the derived insights.
+                    MindSection()
                     if behaviours.isEmpty {
                         // No journal yet — explain, without dead-ending on a paid export.
                         NoopCard {

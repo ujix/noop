@@ -17,6 +17,19 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 2.2.0 — Mind: a daily mood check-in, and nutrition import
+
+- **New (Mac, iOS and Android):** **Mind** — a one-tap daily **mood check-in** (five faces) on the
+  Insights screen. Over time it shows, **privately and on-device**, how your mood tracks with your HRV,
+  sleep and recovery (e.g. *"on days your HRV is higher, your mood averages higher"*). It's
+  self-tracking, **not a clinical assessment**, and nothing leaves your device.
+- **New (Mac, iOS and Android):** import a **nutrition CSV** (Cronometer, MacroFactor, or a generic
+  export) — your daily **calories-in, protein, carbs and fat** land alongside your strain and recovery
+  in Explore and Compare, so you can finally see calories-in next to calories-out. Offline, file-based,
+  optional.
+
+---
+
 ## 2.1.0 — Browse past nights, a smarter Coach, workout times, battery & more
 
 - **New (Mac, iOS and Android):** the **Sleep** screen now lets you **browse past nights** — tap ◀/▶ on

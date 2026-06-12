@@ -55,7 +55,7 @@ struct MetricDescriptor: Identifiable, Hashable {
 /// Canonical catalog — mirrors the WHOOP "Trend View" plus Apple Health body metrics.
 /// Keys match exactly what the importers write into metricSeries.
 enum MetricCatalog {
-    static let categories = ["Heart", "Recovery", "Sleep", "Strain", "Health"]
+    static let categories = ["Heart", "Recovery", "Sleep", "Strain", "Health", "Nutrition", "Mind"]
 
     static let all: [MetricDescriptor] = [
         // ── Heart
@@ -102,6 +102,15 @@ enum MetricCatalog {
         d("lean_mass", "Lean Body Mass", "Health", "kg", "apple-health", "figure.arms.open", 1, true),
         d("bmi", "BMI", "Health", "", "apple-health", "figure", 1, nil),
         d("stress", "Day Stress", "Health", "/3", "my-whoop", "gauge.with.dots.needle.50percent", 1, false),
+
+        // ── Nutrition (imported from a food-tracker CSV: calories-in alongside calories-out)
+        d("calories_in", "Calories In", "Nutrition", "kcal", "nutrition-csv", "fork.knife", 0, nil),
+        d("protein_g", "Protein", "Nutrition", "g", "nutrition-csv", "p.circle", 0, nil),
+        d("carbs_g", "Carbs", "Nutrition", "g", "nutrition-csv", "c.circle", 0, nil),
+        d("fat_g", "Fat", "Nutrition", "g", "nutrition-csv", "f.circle", 0, nil),
+
+        // ── Mind (daily mood check-in, 1–5; non-clinical self-tracking)
+        d("mood", "Mood", "Mind", "/5", "noop-mood", "face.smiling", 0, true),
     ]
 
     static func inCategory(_ c: String) -> [MetricDescriptor] { all.filter { $0.category == c } }

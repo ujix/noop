@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "2.1.0"
+    const val CURRENT_VERSION = "2.2.0"
 
     data class Release(
         val version: String,
@@ -36,6 +36,15 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "2.2.0",
+            title = "Mind — a daily mood check-in — and nutrition import",
+            date = "June 2026",
+            items = listOf(
+                "New (Mac, iOS and Android): Mind — a one-tap daily mood check-in (five faces) on the Insights screen. Over time it shows, privately and on-device, how your mood tracks with your HRV, sleep and recovery (e.g. \"on days your HRV is higher, your mood averages higher\"). It's self-tracking, not a clinical assessment — and nothing leaves your device.",
+                "New (Mac, iOS and Android): import a nutrition CSV (Cronometer, MacroFactor, or a generic export) — your daily calories-in, protein, carbs and fat land alongside your strain and recovery in Explore and Compare, so you can finally see calories-in next to calories-out. Offline, file-based, optional.",
+            ),
+        ),
         Release(
             version = "2.1.0",
             title = "Browse past nights, smarter Coach, workout times, battery & more",
