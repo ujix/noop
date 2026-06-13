@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +28,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.data.DailyMetric
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -108,6 +112,8 @@ fun TrendsScreen(vm: AppViewModel) {
             trailing = recAvg?.let { "${it.roundToInt()}" },
             color = Palette.accent,
             values = recovery.values,
+            dates = recovery.dates,
+            formatY = { "${it.roundToInt()}" },
             footer = listOf(
                 "Avg" to (recAvg?.let { "${it.roundToInt()}" } ?: EM_DASH),
                 "Peak" to (recovery.values.maxOrNull()?.let { "${it.roundToInt()}" } ?: EM_DASH),
@@ -163,10 +169,11 @@ private enum class TrendsRange(val days: Int?, val label: String, val longName: 
 
 // MARK: - Resolved metric (mirrors TrendsView.ResolvedMetric / resolve)
 
-/** A metric's window: its plotted values, the range it resolved to, whether the
- *  selection was widened to find data, and the caption to show. */
+/** A metric's window: its plotted values + date strings, the range it resolved to,
+ *  whether the selection was widened to find data, and the caption to show. */
 private data class ResolvedMetric(
     val values: List<Double>,
+    val dates: List<String>,
     val effective: TrendsRange,
     val widened: Boolean,
     val caption: String,
@@ -183,19 +190,21 @@ private fun resolveMetric(
     value: (DailyMetric) -> Double?,
 ): ResolvedMetric {
     for (r in selected.widening) {
-        val pts = windowValues(days, r, value)
+        val pts = windowPoints(days, r, value)
         if (pts.isNotEmpty()) {
             return ResolvedMetric(
-                values = pts,
+                values = pts.map { it.second },
+                dates = pts.map { it.first },
                 effective = r,
                 widened = r != selected,
                 caption = caption(pts.size, r, selected),
             )
         }
     }
-    val pts = windowValues(days, TrendsRange.All, value)
+    val pts = windowPoints(days, TrendsRange.All, value)
     return ResolvedMetric(
-        values = pts,
+        values = pts.map { it.second },
+        dates = pts.map { it.first },
         effective = TrendsRange.All,
         widened = TrendsRange.All != selected,
         caption = caption(pts.size, TrendsRange.All, selected),
@@ -203,28 +212,24 @@ private fun resolveMetric(
 }
 
 /**
- * Non-null metric values within [range]'s trailing window, taken relative to the latest
- * recorded day (oldest → newest). `days` is the full oldest-first history. A null
- * `range.days` (ALL) returns every non-null point.
+ * Non-null metric points (day, value) within [range]'s trailing window, oldest→newest.
+ * `days` is the full oldest-first history. A null `range.days` (ALL) returns every
+ * non-null point.
  */
-private fun windowValues(
+private fun windowPoints(
     days: List<DailyMetric>,
     range: TrendsRange,
     value: (DailyMetric) -> Double?,
-): List<Double> {
+): List<Pair<String, Double>> {
     if (days.isEmpty()) return emptyList()
     val sliced = when (val n = range.days) {
         null -> days
-        // Trailing N CALENDAR days ending today — anchored to the phone's date, NOT the last N rows
-        // (which on a stale import made months-old data fill the W/M/3M windows, looking current — #23).
-        // ISO yyyy-MM-dd sorts chronologically. Empty short windows auto-widen via resolveMetric, so old
-        // imports surface under a wider range / All history rather than masquerading as recent.
         else -> {
-            val cutoff = java.time.LocalDate.now().minusDays((n - 1).toLong()).toString()
+            val cutoff = LocalDate.now().minusDays((n - 1).toLong()).toString()
             days.filter { it.day >= cutoff }
         }
     }
-    return sliced.mapNotNull(value)
+    return sliced.mapNotNull { d -> value(d)?.let { d.day to it } }
 }
 
 /** Caption text, mirroring TrendsView.caption(count:eff:). */
@@ -250,12 +255,13 @@ private fun ChartCard(
     trailing: String?,
     color: Color,
     values: List<Double>,
+    dates: List<String> = emptyList(),
+    formatY: (Double) -> String = { "${it.roundToInt()}" },
     footer: List<Pair<String, String>>,
     modifier: Modifier = Modifier,
 ) {
     NoopCard(modifier = modifier, padding = Metrics.cardPadding) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Header.
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
                     Overline(title)
@@ -266,20 +272,46 @@ private fun ChartCard(
                 }
             }
 
-            // Chart (fixed height) or sparse placeholder.
             if (values.size >= 2) {
-                LineChart(
-                    values = values,
-                    modifier = Modifier.height(Metrics.chartHeight),
-                    color = color,
-                    fill = true,
-                    selectionEnabled = true,
-                )
+                val minV = values.min(); val maxV = values.max(); val avgV = values.average()
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.height(Metrics.chartHeight),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(formatY(maxV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(formatY(avgV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(formatY(minV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                        }
+                        LineChart(
+                            values = values,
+                            modifier = Modifier.weight(1f).height(Metrics.chartHeight),
+                            color = color,
+                            fill = true,
+                            selectionEnabled = true,
+                        )
+                    }
+                    if (dates.size >= 2) {
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            listOf(dates.first(), dates.getOrNull(dates.lastIndex / 2), dates.last()).forEach { d ->
+                                Text(
+                                    d?.let { runCatching { LocalDate.parse(it).format(DateTimeFormatter.ofPattern("d MMM", Locale.US)) }.getOrDefault(it) }.orEmpty(),
+                                    style = NoopType.footnote, color = Palette.textTertiary,
+                                    modifier = Modifier.weight(1f), maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
             } else {
                 SparsePlaceholder()
             }
 
-            // Footer stats.
             ChartFooter(footer)
         }
     }
@@ -301,6 +333,8 @@ private fun MetricTrendCard(
         trailing = avg?.let { fmt(it) },
         color = color,
         values = resolved.values,
+        dates = resolved.dates,
+        formatY = fmt,
         footer = listOf(
             "Mean $unit" to (avg?.let { fmt(it) } ?: EM_DASH),
             "Min" to (resolved.values.minOrNull()?.let { fmt(it) } ?: EM_DASH),

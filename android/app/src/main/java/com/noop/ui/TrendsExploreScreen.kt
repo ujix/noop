@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -32,6 +33,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.data.DailyMetric
 import com.noop.data.MoodStore
 import com.noop.ingest.NutritionCsvImporter
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -409,12 +412,41 @@ private fun HeroChartCard(
             }
 
             if (windowed.size >= 2) {
-                LineChart(
-                    values = windowed.map { it.value },
-                    modifier = Modifier.height(Metrics.chartHeight),
-                    color = metric.accent,
-                    fill = true,
-                )
+                val values = windowed.map { it.value }
+                val minV = values.min(); val maxV = values.max(); val avgV = values.average()
+                val fmtY: (Double) -> String = { v -> metric.format(v).substringBefore(' ').take(7) }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.height(Metrics.chartHeight),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(fmtY(maxV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(fmtY(avgV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(fmtY(minV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                        }
+                        LineChart(
+                            values = values,
+                            modifier = Modifier.weight(1f).height(Metrics.chartHeight),
+                            color = metric.accent,
+                            fill = true,
+                            selectionEnabled = true,
+                        )
+                    }
+                    val days = windowed.map { it.day }
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        listOf(days.first(), days.getOrNull(days.lastIndex / 2), days.last()).forEach { d ->
+                            Text(
+                                d?.let { runCatching { LocalDate.parse(it).format(DateTimeFormatter.ofPattern("d MMM", java.util.Locale.US)) }.getOrDefault(it) }.orEmpty(),
+                                style = NoopType.footnote, color = Palette.textTertiary,
+                                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             } else {
                 Box(
                     modifier = Modifier
