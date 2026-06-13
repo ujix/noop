@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,9 +38,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.app.DatePickerDialog
+import java.util.Calendar
 import com.noop.analytics.AnalyticsEngine
 import com.noop.data.DailyMetric
 import com.noop.data.SleepSession
@@ -93,6 +97,10 @@ fun SleepScreen(vm: AppViewModel) {
     // mergeSleep but WITHOUT the per-night collapse). Keyed on `days` so a sync/import (which always
     // rewrites dailyMetric too) reloads; these reads have no Flow. (#160, #170)
     var sleeps by remember { mutableStateOf<List<SleepSession>>(emptyList()) }
+    // 0 = latest night, N = N sleep-sessions back. Snaps back to the newest night only on a
+    // real data reload (new sync / re-import via days changing). Optimistic UI updates do NOT
+    // reset this so the user stays on the night they just navigated to. (#160)
+    var nightOffset by remember { mutableIntStateOf(0) }
     LaunchedEffect(days) {
         sleeps = runCatching {
             val now = System.currentTimeMillis() / 1000L
@@ -102,13 +110,8 @@ fun SleepScreen(vm: AppViewModel) {
             val computedOnly = computed.filter { AnalyticsEngine.dayString(it.endTs) !in importedDays }
             (imported + computedOnly).sortedBy { it.startTs }
         }.getOrDefault(emptyList())
+        nightOffset = 0
     }
-
-    // 0 = latest night, N = N sleep-sessions back. Snaps back to the newest night when the
-    // list itself changes (new night synced / re-import); structural equality keeps no-op
-    // reloads from resetting a browse in progress. (#160)
-    var nightOffset by remember { mutableIntStateOf(0) }
-    LaunchedEffect(sleeps) { nightOffset = 0 }
 
     // Export-verbatim sleep figures (sleep_performance / consistency / need / debt) — the
     // headline tiles prefer them over the on-device approximations. Keyed on `days` so a
@@ -137,6 +140,12 @@ fun SleepScreen(vm: AppViewModel) {
     }
     val display = remember(model, night) { heroDisplay(model, night) }
 
+    val onPickNightDate: (LocalDate) -> Unit = { targetDate ->
+        val targetStr = targetDate.toString()
+        val idx = sleeps.indexOfLast { s -> localDayString(s.endTs) == targetStr }
+        if (idx >= 0) nightOffset = sleeps.lastIndex - idx
+    }
+
     ScreenScaffold(title = "Sleep", subtitle = "Last night, read in two seconds.") {
         if (model == null && night == null) {
             // While the strap is mid-offload, say so — "No nights" reads as final otherwise (#77).
@@ -149,6 +158,7 @@ fun SleepScreen(vm: AppViewModel) {
                 nightOffset = nightOffset,
                 lastIndex = max(sleeps.lastIndex, 0),
                 onNavigate = { nightOffset = it },
+                onPickNightDate = onPickNightDate,
             )
             if (model != null) {
                 Spacer(Modifier.height(Metrics.selectorTopUp))
@@ -171,9 +181,10 @@ private fun Hero(
     nightOffset: Int,
     lastIndex: Int,
     onNavigate: (Int) -> Unit,
+    onPickNightDate: ((LocalDate) -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
-        NightNavHeader(nightOffset, lastIndex, clock, onNavigate)
+        NightNavHeader(nightOffset, lastIndex, clock, onNavigate, onPickNightDate)
         if (display == null) {
             // Honest fallback: this night recorded no usable stage data — never silently
             // substitute another night's hypnogram. (#160)
@@ -233,9 +244,8 @@ private fun Hero(
 }
 
 /**
- * Hero header with ◀/▶ to browse past nights. ◀ goes older (offset+1), ▶ newer; each is
- * disabled at its bound — tinted tertiary when disabled, accent when active. Mirrors the
- * macOS nightNavHeader (SleepView.swift). (#160)
+ * Hero header with ◀/▶ to browse past nights. Tapping the accent center block opens a
+ * DatePickerDialog to jump to any recorded night by date. Mirrors [DayNavBar]. (#160)
  */
 @Composable
 private fun NightNavHeader(
@@ -243,46 +253,83 @@ private fun NightNavHeader(
     lastIndex: Int,
     clock: String?,
     onNavigate: (Int) -> Unit,
+    onPickNightDate: ((LocalDate) -> Unit)? = null,
 ) {
     val canGoOlder = offset < lastIndex
     val canGoNewer = offset > 0
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(Metrics.space12),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = { if (canGoOlder) onNavigate(offset + 1) },
-            enabled = canGoOlder,
-            modifier = Modifier.size(Metrics.iconButton),
-        ) {
-            Icon(
-                Icons.Filled.ChevronLeft,
-                contentDescription = "Previous night",
-                tint = if (canGoOlder) Palette.accent else Palette.textTertiary,
-            )
+    val context = LocalContext.current
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    if (showDatePicker && onPickNightDate != null) {
+        val cal = Calendar.getInstance()
+        DisposableEffect(Unit) {
+            val dialog = DatePickerDialog(
+                context,
+                { _, year, month, day ->
+                    onPickNightDate(LocalDate.of(year, month + 1, day))
+                    showDatePicker = false
+                },
+                cal.get(Calendar.YEAR),
+                cal.get(Calendar.MONTH),
+                cal.get(Calendar.DAY_OF_MONTH),
+            ).apply {
+                datePicker.maxDate = System.currentTimeMillis()
+                setOnDismissListener { showDatePicker = false }
+            }
+            dialog.show()
+            onDispose { runCatching { dialog.dismiss() } }
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Overline(
-                if (offset == 0) "Last night" else "$offset night${if (offset == 1) "" else "s"} ago",
-                color = Palette.textTertiary,
-            )
+    }
+
+    val nightLabel = when (offset) {
+        0 -> "Last night"
+        1 -> "1 night ago"
+        else -> "$offset nights ago"
+    }
+    val blockShape = androidx.compose.foundation.shape.RoundedCornerShape(Metrics.cornerSm)
+    val clockParts = clock?.split(" · ", limit = 2)
+    val dateLabel = clockParts?.getOrNull(0)
+    val timeLabel = clockParts?.getOrNull(1)
+
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.space6)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.selectorSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { if (canGoOlder) onNavigate(offset + 1) }, enabled = canGoOlder) {
+                Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous night", tint = if (canGoOlder) Palette.accent else Palette.textTertiary)
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(blockShape)
+                    .background(Palette.accent.copy(alpha = StrandAlpha.selectedFill))
+                    .border(Metrics.divider, Palette.accent.copy(alpha = StrandAlpha.selectedBorder), blockShape)
+                    .clickable(enabled = onPickNightDate != null) { showDatePicker = true }
+                    .padding(vertical = Metrics.selectorPadding, horizontal = Metrics.selectorPadding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(nightLabel, style = NoopType.caption, color = Palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (dateLabel != null) {
+                    Text(dateLabel, style = NoopType.captionNumber, color = Palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            IconButton(onClick = { if (canGoNewer) onNavigate(offset - 1) }, enabled = canGoNewer) {
+                Icon(Icons.Filled.ChevronRight, contentDescription = "Next night", tint = if (canGoNewer) Palette.accent else Palette.textTertiary)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                clock ?: "—",
-                style = NoopType.headline,
-                color = Palette.textPrimary,
+                timeLabel ?: clock ?: "—",
+                style = NoopType.captionNumber,
+                color = Palette.accent,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-            )
-        }
-        IconButton(
-            onClick = { if (canGoNewer) onNavigate(offset - 1) },
-            enabled = canGoNewer,
-            modifier = Modifier.size(Metrics.iconButton),
-        ) {
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = "Next night",
-                tint = if (canGoNewer) Palette.accent else Palette.textTertiary,
             )
         }
     }
