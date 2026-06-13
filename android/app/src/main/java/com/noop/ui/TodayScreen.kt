@@ -389,7 +389,7 @@ private fun ScoringGuideIntroCard(onOpen: () -> Unit, onDismiss: () -> Unit) {
 
 @Composable
 private fun DaySelectorBar(selectedOffset: Int, onSelect: (Int) -> Unit) {
-    ThreeDaySelectorBar(selectedOffset = selectedOffset, onSelect = onSelect)
+    DayNavBar(selectedOffset = selectedOffset, onSelect = onSelect)
 }
 
 @Composable
