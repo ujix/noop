@@ -119,6 +119,7 @@ private enum class Destination(
     Health("health", "Health", Icons.Filled.MonitorHeart),
     VitalSigns("vital_signs", "Vital Signs", Icons.Filled.HealthAndSafety),
     VitalSignsDetail("vital_detail/{key}", "Vital Signs", Icons.Filled.HealthAndSafety),
+    SleepMetricDetail("sleep_metric_detail/{key}", "Sleep Metric", Icons.Filled.Bedtime),
     AppleHealth("apple_health", "Apple Health", Icons.Filled.HealthAndSafety),
 
     // Group: System
@@ -322,7 +323,18 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     )
                 }
                 composable(Destination.Live.route) { LiveScreen(viewModel) }
-                composable(Destination.Sleep.route) { SleepScreen(viewModel) }
+                composable(Destination.Sleep.route) {
+                    SleepScreen(
+                        vm = viewModel,
+                        onOpenJournal = { nav.navigateTopLevel(Destination.Insights.route) },
+                    )
+                }
+                composable(Destination.SleepMetricDetail.route) { backStackEntry ->
+                    SleepMetricDetailScreen(
+                        vm = viewModel,
+                        key = backStackEntry.arguments?.getString("key").orEmpty(),
+                    )
+                }
                 composable(Destination.Intervals.route) { IntervalsScreen(viewModel) }
                 composable(Destination.Breathe.route) { BreatheScreen(viewModel) }
                 composable(Destination.Coach.route) { CoachScreen() }
