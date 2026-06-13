@@ -244,7 +244,14 @@ fun SleepScreen(
                 lastIndex = max(sleeps.lastIndex, 0),
                 onNavigate = { nightOffset = it },
                 session = night?.session,
-                onUpdateTimes = { s, start, end -> vm.updateSleepSessionTimes(s, start, end) },
+                onUpdateTimes = { s, start, end ->
+                    vm.updateSleepSessionTimes(s, start, end)
+                    // Optimistic update: immediately reflect new timestamps so the header re-renders.
+                    sleeps = sleeps.map {
+                        if (it.deviceId == s.deviceId && it.startTs == s.startTs) it.copy(startTs = start, endTs = end)
+                        else it
+                    }
+                },
                 onPickNightDate = onPickNightDate,
             )
             if (model != null) {
@@ -357,51 +364,105 @@ private fun NightNavHeader(
     val canGoOlder = offset < lastIndex
     val canGoNewer = offset > 0
     val context = LocalContext.current
-    var editingTimes by remember { mutableStateOf(false) }
+    var showTimeChoice by remember { mutableStateOf(false) }
+    var editingBed by remember { mutableStateOf(false) }
+    var editingWake by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
 
-    // Time-edit flow: sequential Bedtime → Wake-up dialogs.
-    if (editingTimes && session != null) {
-        val startCal = Calendar.getInstance().apply { timeInMillis = session.startTs * 1000L }
-        val endCal = Calendar.getInstance().apply { timeInMillis = session.endTs * 1000L }
-        var pendingStart by remember { mutableStateOf(session.startTs) }
-        var pendingEnd by remember { mutableStateOf(session.endTs) }
-
-        DisposableEffect(Unit) {
-            val wakeDialog = TimePickerDialog(
-                context,
-                { _, h, m ->
-                    val cal = Calendar.getInstance().apply {
-                        timeInMillis = session.endTs * 1000L
-                        set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
+    // Choice dialog: which time to edit?
+    if (showTimeChoice && session != null) {
+        val timeFmt = SimpleDateFormat("HH:mm", Locale.US)
+        val bedText = timeFmt.format(Date(session.startTs * 1000L))
+        val wakeText = timeFmt.format(Date(session.endTs * 1000L))
+        val blockShape2 = androidx.compose.foundation.shape.RoundedCornerShape(Metrics.cornerSm)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTimeChoice = false },
+            containerColor = Palette.surfaceRaised,
+            titleContentColor = Palette.textPrimary,
+            textContentColor = Palette.textSecondary,
+            title = { Text("Adjust sleep times", style = NoopType.headline) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Metrics.space2)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(blockShape2)
+                            .clickable { showTimeChoice = false; editingBed = true }
+                            .padding(Metrics.selectorPadding),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Overline("Bedtime", color = Palette.textTertiary)
+                            Text(bedText, style = NoopType.captionNumber, color = Palette.textPrimary)
+                        }
+                        Icon(Icons.Filled.Edit, contentDescription = null, tint = Palette.accent, modifier = Modifier.size(16.dp))
                     }
-                    pendingEnd = cal.timeInMillis / 1000L
-                    onUpdateTimes(session, pendingStart, pendingEnd)
-                    editingTimes = false
-                },
-                endCal.get(Calendar.HOUR_OF_DAY),
-                endCal.get(Calendar.MINUTE),
-                true,
-            )
-            val bedDialog = TimePickerDialog(
+                    Box(modifier = Modifier.fillMaxWidth().height(Metrics.divider).background(Palette.hairline))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(blockShape2)
+                            .clickable { showTimeChoice = false; editingWake = true }
+                            .padding(Metrics.selectorPadding),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Overline("Wake-up", color = Palette.textTertiary)
+                            Text(wakeText, style = NoopType.captionNumber, color = Palette.textPrimary)
+                        }
+                        Icon(Icons.Filled.Edit, contentDescription = null, tint = Palette.accent, modifier = Modifier.size(16.dp))
+                    }
+                }
+            },
+            confirmButton = {},
+        )
+    }
+
+    // Bed-time picker
+    if (editingBed && session != null) {
+        val startCal = Calendar.getInstance().apply { timeInMillis = session.startTs * 1000L }
+        DisposableEffect(Unit) {
+            val dialog = TimePickerDialog(
                 context,
                 { _, h, m ->
                     val cal = Calendar.getInstance().apply {
                         timeInMillis = session.startTs * 1000L
                         set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
                     }
-                    pendingStart = cal.timeInMillis / 1000L
-                    wakeDialog.setTitle("Wake-up time")
-                    wakeDialog.show()
+                    onUpdateTimes(session, cal.timeInMillis / 1000L, session.endTs)
+                    editingBed = false
                 },
                 startCal.get(Calendar.HOUR_OF_DAY),
                 startCal.get(Calendar.MINUTE),
                 true,
             ).apply { setTitle("Bedtime") }
-            bedDialog.setOnDismissListener { if (!wakeDialog.isShowing) editingTimes = false }
-            wakeDialog.setOnDismissListener { editingTimes = false }
-            bedDialog.show()
-            onDispose { runCatching { bedDialog.dismiss(); wakeDialog.dismiss() } }
+            dialog.setOnDismissListener { editingBed = false }
+            dialog.show()
+            onDispose { runCatching { dialog.dismiss() } }
+        }
+    }
+
+    // Wake-up time picker
+    if (editingWake && session != null) {
+        val endCal = Calendar.getInstance().apply { timeInMillis = session.endTs * 1000L }
+        DisposableEffect(Unit) {
+            val dialog = TimePickerDialog(
+                context,
+                { _, h, m ->
+                    val cal = Calendar.getInstance().apply {
+                        timeInMillis = session.endTs * 1000L
+                        set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
+                    }
+                    onUpdateTimes(session, session.startTs, cal.timeInMillis / 1000L)
+                    editingWake = false
+                },
+                endCal.get(Calendar.HOUR_OF_DAY),
+                endCal.get(Calendar.MINUTE),
+                true,
+            ).apply { setTitle("Wake-up time") }
+            dialog.setOnDismissListener { editingWake = false }
+            dialog.show()
+            onDispose { runCatching { dialog.dismiss() } }
         }
     }
 
@@ -434,6 +495,10 @@ private fun NightNavHeader(
         else -> "$offset nights ago"
     }
     val blockShape = androidx.compose.foundation.shape.RoundedCornerShape(Metrics.cornerSm)
+    // Split "EEE d MMM · HH:mm–HH:mm" into date and time parts.
+    val clockParts = clock?.split(" · ", limit = 2)
+    val dateLabel = clockParts?.getOrNull(0)
+    val timeLabel = clockParts?.getOrNull(1)
 
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.space6)) {
         Row(
@@ -458,6 +523,9 @@ private fun NightNavHeader(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(nightLabel, style = NoopType.caption, color = Palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (dateLabel != null) {
+                    Text(dateLabel, style = NoopType.captionNumber, color = Palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             IconButton(
                 onClick = { if (canGoNewer) onNavigate(offset - 1) },
@@ -472,7 +540,7 @@ private fun NightNavHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                clock ?: "—",
+                timeLabel ?: clock ?: "—",
                 style = NoopType.captionNumber,
                 color = Palette.accent,
                 maxLines = 1,
@@ -484,7 +552,7 @@ private fun NightNavHeader(
                     Icons.Filled.Edit,
                     contentDescription = "Adjust sleep times",
                     tint = Palette.textTertiary,
-                    modifier = Modifier.size(14.dp).clickable { editingTimes = true },
+                    modifier = Modifier.size(14.dp).clickable { showTimeChoice = true },
                 )
             }
         }
