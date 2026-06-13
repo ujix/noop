@@ -6,18 +6,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +39,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import com.noop.data.DailyMetric
 import com.noop.data.MoodStore
 import com.noop.ingest.NutritionCsvImporter
@@ -338,76 +346,94 @@ private fun MetricDropdown(
     onSelect: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val grouped = remember(metrics) { metrics.groupBy { it.category } }
     val shape = RoundedCornerShape(Metrics.cornerSm)
 
-    // Group by category for visual section dividers inside the menu.
-    val grouped = remember(metrics) { metrics.groupBy { it.category } }
-
-    Box {
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        // Trigger row — full-width accent-bordered card matching Strand surface style.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .menuAnchor()
                 .clip(shape)
                 .background(Palette.surfaceInset)
                 .border(Metrics.divider, Palette.accent.copy(alpha = StrandAlpha.selectedBorder), shape)
-                .clickable { expanded = true }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .height(10.dp)
-                    .width(10.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(selected.accent),
-            )
+            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(selected.accent))
             Column(modifier = Modifier.weight(1f)) {
-                Overline(selected.category)
+                Overline(selected.category, color = Palette.textTertiary)
                 Text(selected.title, style = NoopType.headline, color = Palette.textPrimary)
             }
-            Icon(Icons.Filled.ArrowDropDown, contentDescription = "Pick metric", tint = Palette.textSecondary)
+            Icon(
+                if (expanded) androidx.compose.material.icons.Icons.Filled.ArrowDropDown else Icons.Filled.ArrowDropDown,
+                contentDescription = "Pick metric",
+                tint = if (expanded) Palette.accent else Palette.textSecondary,
+            )
         }
 
-        DropdownMenu(
+        // Dropdown — full-width, grouped by category with accent overline headers.
+        ExposedDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.background(Palette.surfaceRaised),
+            modifier = Modifier
+                .background(Palette.surfaceRaised)
+                .border(Metrics.divider, Palette.hairline, shape),
         ) {
             grouped.entries.forEachIndexed { groupIdx, (category, items) ->
                 if (groupIdx > 0) {
-                    Box(modifier = Modifier.fillMaxWidth().height(Metrics.divider).background(Palette.hairline))
+                    HorizontalDivider(
+                        color = Palette.hairline,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
                 }
-                DropdownMenuItem(
-                    text = { Overline(category) },
-                    onClick = {},
-                    enabled = false,
-                )
+                // Category header (non-interactive).
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Palette.surfaceRaised)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Palette.accent))
+                    Overline(category, color = Palette.accent)
+                }
                 items.forEach { metric ->
+                    val isSelected = metric.key == selected.key
                     DropdownMenuItem(
                         text = {
                             Row(
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .height(8.dp)
-                                        .width(8.dp)
-                                        .clip(RoundedCornerShape(50))
-                                        .background(metric.accent),
-                                )
+                                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(metric.accent))
                                 Text(
                                     metric.title,
                                     style = NoopType.body,
-                                    color = if (metric.key == selected.key) Palette.accent else Palette.textPrimary,
+                                    color = if (isSelected) Palette.accent else Palette.textPrimary,
+                                    modifier = Modifier.weight(1f),
                                 )
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = Palette.accent,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         },
-                        onClick = {
-                            onSelect(metric.key)
-                            expanded = false
-                        },
+                        onClick = { onSelect(metric.key); expanded = false },
+                        modifier = if (isSelected) {
+                            Modifier.background(Palette.accent.copy(alpha = StrandAlpha.selectedFill))
+                        } else Modifier,
                     )
                 }
             }
@@ -447,13 +473,42 @@ private fun HeroChartCard(
             }
 
             if (windowed.size >= 2) {
-                LineChart(
-                    values = windowed.map { it.value },
-                    modifier = Modifier.height(Metrics.chartHeight),
-                    color = metric.accent,
-                    fill = true,
-                    selectionEnabled = true,
-                )
+                val values = windowed.map { it.value }
+                val minV = values.min(); val maxV = values.max(); val avgV = values.average()
+                val fmtY: (Double) -> String = { v -> metric.format(v).substringBefore(' ').take(7) }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.height(Metrics.chartHeight),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(fmtY(maxV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(fmtY(avgV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(fmtY(minV), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                        }
+                        LineChart(
+                            values = values,
+                            modifier = Modifier.weight(1f).height(Metrics.chartHeight),
+                            color = metric.accent,
+                            fill = true,
+                            selectionEnabled = true,
+                        )
+                    }
+                    // X-axis date labels.
+                    val days = windowed.map { it.day }
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        listOf(days.first(), days.getOrNull(days.lastIndex / 2), days.last()).forEach { d ->
+                            Text(
+                                d?.let { runCatching { LocalDate.parse(it).format(DateTimeFormatter.ofPattern("d MMM", java.util.Locale.US)) }.getOrDefault(it) }.orEmpty(),
+                                style = NoopType.footnote, color = Palette.textTertiary,
+                                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             } else {
                 Box(
                     modifier = Modifier

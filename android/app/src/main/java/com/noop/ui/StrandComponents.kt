@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
@@ -176,6 +175,7 @@ internal fun DayNavBar(
                 .clip(blockShape)
                 .background(Palette.accent.copy(alpha = StrandAlpha.selectedFill))
                 .border(Metrics.divider, Palette.accent.copy(alpha = StrandAlpha.selectedBorder), blockShape)
+                .clickable { showPicker = true }
                 .padding(vertical = Metrics.selectorPadding, horizontal = Metrics.selectorPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -187,9 +187,6 @@ internal fun DayNavBar(
             enabled = selectedOffset > 0,
         ) {
             Icon(Icons.Filled.ChevronRight, contentDescription = "Newer day", tint = if (selectedOffset > 0) Palette.textSecondary else Palette.textTertiary)
-        }
-        IconButton(onClick = { showPicker = true }) {
-            Icon(Icons.Filled.CalendarMonth, contentDescription = "Pick date", tint = Palette.textSecondary)
         }
     }
 }

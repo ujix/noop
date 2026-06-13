@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -25,7 +26,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,6 +60,7 @@ import org.json.JSONArray
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -92,7 +97,11 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SleepScreen(vm: AppViewModel, onOpenJournal: () -> Unit = {}) {
+fun SleepScreen(
+    vm: AppViewModel,
+    onOpenJournal: () -> Unit = {},
+    onMetricClick: (String) -> Unit = {},
+) {
     val days by vm.recentDays.collectAsStateWithLifecycle()
     val live by vm.live.collectAsStateWithLifecycle()
 
@@ -202,6 +211,13 @@ fun SleepScreen(vm: AppViewModel, onOpenJournal: () -> Unit = {}) {
     }
     val display = remember(model, night) { heroDisplay(model, night) }
 
+    // Map a calendar date to the nearest night offset by matching the session's wake day (local tz).
+    val onPickNightDate: (LocalDate) -> Unit = { targetDate ->
+        val targetStr = targetDate.toString()
+        val idx = sleeps.indexOfLast { s -> localDayString(s.endTs) == targetStr }
+        if (idx >= 0) nightOffset = sleeps.lastIndex - idx
+    }
+
     ScreenScaffold(title = "Sleep", subtitle = "Last night, read in two seconds.") {
         if (model == null && night == null) {
             // While the strap is mid-offload, say so — "No nights" reads as final otherwise (#77).
@@ -216,10 +232,11 @@ fun SleepScreen(vm: AppViewModel, onOpenJournal: () -> Unit = {}) {
                 onNavigate = { nightOffset = it },
                 session = night?.session,
                 onUpdateTimes = { s, start, end -> vm.updateSleepSessionTimes(s, start, end) },
+                onPickNightDate = onPickNightDate,
             )
             if (model != null) {
                 Spacer(Modifier.height(Metrics.selectorTopUp))
-                MetricGrid(model)
+                MetricGrid(model, onMetricClick = onMetricClick)
                 Spacer(Modifier.height(Metrics.selectorTopUp))
                 StagesVsTypical(model)
                 Spacer(Modifier.height(Metrics.selectorTopUp))
@@ -245,9 +262,10 @@ private fun Hero(
     onNavigate: (Int) -> Unit,
     session: SleepSession? = null,
     onUpdateTimes: (SleepSession, Long, Long) -> Unit = { _, _, _ -> },
+    onPickNightDate: ((LocalDate) -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
-        NightNavHeader(nightOffset, lastIndex, clock, onNavigate, session, onUpdateTimes)
+        NightNavHeader(nightOffset, lastIndex, clock, onNavigate, session, onUpdateTimes, onPickNightDate)
         if (display == null) {
             // Honest fallback: this night recorded no usable stage data — never silently
             // substitute another night's hypnogram. (#160)
@@ -307,9 +325,10 @@ private fun Hero(
 }
 
 /**
- * Hero header with ◀/▶ to browse past nights. ◀ goes older (offset+1), ▶ newer; each is
- * disabled at its bound — tinted tertiary when disabled, accent when active. Mirrors the
- * macOS nightNavHeader (SleepView.swift). (#160)
+ * Hero header with ◀/▶ to browse past nights plus an accent-tinted center block that
+ * mirrors [DayNavBar]: tapping the block opens a [DatePickerDialog] to jump to any night
+ * by date; the edit-pen icon adjusts the session's bed/wake times. Matches the Today
+ * page's date-nav visual exactly. (#160)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -320,45 +339,50 @@ private fun NightNavHeader(
     onNavigate: (Int) -> Unit,
     session: SleepSession? = null,
     onUpdateTimes: (SleepSession, Long, Long) -> Unit = { _, _, _ -> },
+    onPickNightDate: ((LocalDate) -> Unit)? = null,
 ) {
     val canGoOlder = offset < lastIndex
     val canGoNewer = offset > 0
     val context = LocalContext.current
     var editingTimes by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
+    // Time-edit flow: sequential Bedtime → Wake-up dialogs.
     if (editingTimes && session != null) {
-        val startCal = java.util.Calendar.getInstance().apply { timeInMillis = session.startTs * 1000L }
-        val endCal = java.util.Calendar.getInstance().apply { timeInMillis = session.endTs * 1000L }
+        val startCal = Calendar.getInstance().apply { timeInMillis = session.startTs * 1000L }
+        val endCal = Calendar.getInstance().apply { timeInMillis = session.endTs * 1000L }
         var pendingStart by remember { mutableStateOf(session.startTs) }
         var pendingEnd by remember { mutableStateOf(session.endTs) }
 
-        androidx.compose.runtime.DisposableEffect(Unit) {
+        DisposableEffect(Unit) {
             val wakeDialog = TimePickerDialog(
                 context,
                 { _, h, m ->
-                    val cal = java.util.Calendar.getInstance().apply {
-                        timeInMillis = session.endTs * 1000L; set(java.util.Calendar.HOUR_OF_DAY, h); set(java.util.Calendar.MINUTE, m)
+                    val cal = Calendar.getInstance().apply {
+                        timeInMillis = session.endTs * 1000L
+                        set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
                     }
                     pendingEnd = cal.timeInMillis / 1000L
                     onUpdateTimes(session, pendingStart, pendingEnd)
                     editingTimes = false
                 },
-                endCal.get(java.util.Calendar.HOUR_OF_DAY),
-                endCal.get(java.util.Calendar.MINUTE),
+                endCal.get(Calendar.HOUR_OF_DAY),
+                endCal.get(Calendar.MINUTE),
                 true,
             )
             val bedDialog = TimePickerDialog(
                 context,
                 { _, h, m ->
-                    val cal = java.util.Calendar.getInstance().apply {
-                        timeInMillis = session.startTs * 1000L; set(java.util.Calendar.HOUR_OF_DAY, h); set(java.util.Calendar.MINUTE, m)
+                    val cal = Calendar.getInstance().apply {
+                        timeInMillis = session.startTs * 1000L
+                        set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
                     }
                     pendingStart = cal.timeInMillis / 1000L
                     wakeDialog.setTitle("Wake-up time")
                     wakeDialog.show()
                 },
-                startCal.get(java.util.Calendar.HOUR_OF_DAY),
-                startCal.get(java.util.Calendar.MINUTE),
+                startCal.get(Calendar.HOUR_OF_DAY),
+                startCal.get(Calendar.MINUTE),
                 true,
             ).apply { setTitle("Bedtime") }
             bedDialog.setOnDismissListener { if (!wakeDialog.isShowing) editingTimes = false }
@@ -368,55 +392,86 @@ private fun NightNavHeader(
         }
     }
 
+    // Night date-picker: jump to any night by calendar date.
+    if (showDatePicker && onPickNightDate != null) {
+        val cal = session?.let { Calendar.getInstance().apply { timeInMillis = it.startTs * 1000L } }
+            ?: Calendar.getInstance()
+        DisposableEffect(Unit) {
+            val dialog = DatePickerDialog(
+                context,
+                { _, year, month, day ->
+                    onPickNightDate(LocalDate.of(year, month + 1, day))
+                    showDatePicker = false
+                },
+                cal.get(Calendar.YEAR),
+                cal.get(Calendar.MONTH),
+                cal.get(Calendar.DAY_OF_MONTH),
+            ).apply {
+                datePicker.maxDate = System.currentTimeMillis()
+                setOnDismissListener { showDatePicker = false }
+            }
+            dialog.show()
+            onDispose { runCatching { dialog.dismiss() } }
+        }
+    }
+
+    val nightLabel = when (offset) {
+        0 -> "Last night"
+        1 -> "1 night ago"
+        else -> "$offset nights ago"
+    }
+    val blockShape = androidx.compose.foundation.shape.RoundedCornerShape(Metrics.cornerSm)
+
     Row(
-        horizontalArrangement = Arrangement.spacedBy(Metrics.space12),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Metrics.selectorSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(
             onClick = { if (canGoOlder) onNavigate(offset + 1) },
             enabled = canGoOlder,
-            modifier = Modifier.size(Metrics.iconButton),
         ) {
-            Icon(
-                Icons.Filled.ChevronLeft,
-                contentDescription = "Previous night",
-                tint = if (canGoOlder) Palette.accent else Palette.textTertiary,
-            )
+            Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous night", tint = if (canGoOlder) Palette.accent else Palette.textTertiary)
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Overline(
-                if (offset == 0) "Last night" else "$offset night${if (offset == 1) "" else "s"} ago",
-                color = Palette.textTertiary,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(blockShape)
+                .background(Palette.accent.copy(alpha = StrandAlpha.selectedFill))
+                .border(Metrics.divider, Palette.accent.copy(alpha = StrandAlpha.selectedBorder), blockShape)
+                .clickable(enabled = onPickNightDate != null) { showDatePicker = true }
+                .padding(vertical = Metrics.selectorPadding, horizontal = Metrics.selectorPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(nightLabel, style = NoopType.caption, color = Palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(top = Metrics.space2),
+            ) {
                 Text(
                     clock ?: "—",
-                    style = NoopType.headline,
-                    color = Palette.textPrimary,
+                    style = NoopType.captionNumber,
+                    color = Palette.accent,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (session != null) {
-                    IconButton(
-                        onClick = { editingTimes = true },
-                        modifier = Modifier.size(20.dp),
-                    ) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Adjust sleep times", tint = Palette.textTertiary, modifier = Modifier.size(14.dp))
-                    }
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Adjust sleep times",
+                        tint = Palette.textTertiary,
+                        modifier = Modifier.size(11.dp).clickable { editingTimes = true },
+                    )
                 }
             }
         }
         IconButton(
             onClick = { if (canGoNewer) onNavigate(offset - 1) },
             enabled = canGoNewer,
-            modifier = Modifier.size(Metrics.iconButton),
         ) {
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = "Next night",
-                tint = if (canGoNewer) Palette.accent else Palette.textTertiary,
-            )
+            Icon(Icons.Filled.ChevronRight, contentDescription = "Next night", tint = if (canGoNewer) Palette.accent else Palette.textTertiary)
         }
     }
 }
@@ -441,7 +496,7 @@ private fun StageLegend(label: String, color: Color) {
 // MARK: - 2. Metric grid (uniform fixed-height tiles, each with a sparkline)
 
 @Composable
-private fun MetricGrid(m: SleepModel) {
+private fun MetricGrid(m: SleepModel, onMetricClick: (String) -> Unit = {}) {
     val tiles = listOf<@Composable (Modifier) -> Unit>(
         { mod ->
             SparkTile(
@@ -450,6 +505,7 @@ private fun MetricGrid(m: SleepModel) {
                 caption = vsTypical(m.performance.latest, m.performance.typical, "%"),
                 accent = m.performance.latest?.let { Palette.recoveryColor(it) } ?: Palette.textPrimary,
                 spark = m.performance.series, sparkColor = Palette.accent,
+                onClick = { onMetricClick("performance") },
             )
         },
         { mod ->
@@ -459,6 +515,7 @@ private fun MetricGrid(m: SleepModel) {
                 caption = vsTypical(m.efficiency.latest, m.efficiency.typical, "%"),
                 accent = Palette.statusPositive,
                 spark = m.efficiency.series, sparkColor = Palette.statusPositive,
+                onClick = { onMetricClick("efficiency") },
             )
         },
         { mod ->
@@ -468,6 +525,7 @@ private fun MetricGrid(m: SleepModel) {
                 caption = vsTypical(m.consistency.latest, m.consistency.typical, "%"),
                 accent = m.consistency.latest?.let { Palette.recoveryColor(it) } ?: Palette.textPrimary,
                 spark = m.consistency.series, sparkColor = Palette.metricCyan,
+                onClick = { onMetricClick("consistency") },
             )
         },
         { mod ->
@@ -477,6 +535,7 @@ private fun MetricGrid(m: SleepModel) {
                 caption = vsTypical(m.hoursVsNeeded.latest, m.hoursVsNeeded.typical, "%"),
                 accent = m.hoursVsNeeded.latest?.let { Palette.recoveryColor(minOf(100.0, it)) } ?: Palette.textPrimary,
                 spark = m.hoursVsNeeded.series, sparkColor = Palette.accent,
+                onClick = { onMetricClick("hours_vs_needed") },
             )
         },
         { mod ->
@@ -486,6 +545,7 @@ private fun MetricGrid(m: SleepModel) {
                 caption = vsTypical(m.restorative.latest, m.restorative.typical, "%"),
                 accent = Palette.sleepREM,
                 spark = m.restorative.series, sparkColor = Palette.sleepREM,
+                onClick = { onMetricClick("restorative") },
             )
         },
         { mod ->
@@ -495,6 +555,7 @@ private fun MetricGrid(m: SleepModel) {
                 caption = vsTypical(m.respiratory.latest, m.respiratory.typical, " rpm", decimals = 1),
                 accent = Palette.metricPurple,
                 spark = m.respiratory.series, sparkColor = Palette.metricPurple,
+                onClick = { onMetricClick("respiratory") },
             )
         },
         { mod ->
@@ -504,6 +565,7 @@ private fun MetricGrid(m: SleepModel) {
                 caption = debtCaption(m.sleepDebt.latest),
                 accent = debtColor(m.sleepDebt.latest),
                 spark = m.sleepDebt.series, sparkColor = Palette.metricRose,
+                onClick = { onMetricClick("sleep_debt") },
             )
         },
     )
@@ -1322,35 +1384,37 @@ private fun LegendDot(label: String, color: Color) {
 
 @Composable
 internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
-    // Use the last 14 sessions for the chart and consistency score.
     val recent = sleeps.takeLast(14)
     if (recent.size < 3) return
 
-    // Per-night bedtime and wake as fractional hours (0 = midnight, negative = pre-midnight).
     data class NightTiming(val label: String, val bedHour: Float, val wakeHour: Float)
-    val sdf = java.text.SimpleDateFormat("d", java.util.Locale.US)
+    val sdf = java.text.SimpleDateFormat("EEE", java.util.Locale.US)
     val timings = recent.map { s ->
-        val bedCal = java.util.Calendar.getInstance().apply { timeInMillis = s.startTs * 1000L }
-        val wakeCal = java.util.Calendar.getInstance().apply { timeInMillis = s.endTs * 1000L }
-        val bedH = bedCal.get(java.util.Calendar.HOUR_OF_DAY) + bedCal.get(java.util.Calendar.MINUTE) / 60f
-        // Normalise bedtime: hours before midnight → negative (e.g., 22:00 → -2.0)
+        val bedCal = Calendar.getInstance().apply { timeInMillis = s.startTs * 1000L }
+        val wakeCal = Calendar.getInstance().apply { timeInMillis = s.endTs * 1000L }
+        val bedH = bedCal.get(Calendar.HOUR_OF_DAY) + bedCal.get(Calendar.MINUTE) / 60f
         val bedNorm = if (bedH > 12f) bedH - 24f else bedH
-        val wakeH = wakeCal.get(java.util.Calendar.HOUR_OF_DAY) + wakeCal.get(java.util.Calendar.MINUTE) / 60f
-        NightTiming(sdf.format(java.util.Date(s.endTs * 1000L)), bedNorm, wakeH)
+        val wakeH = wakeCal.get(Calendar.HOUR_OF_DAY) + wakeCal.get(Calendar.MINUTE) / 60f
+        NightTiming(sdf.format(Date(s.endTs * 1000L)), bedNorm, wakeH)
     }
 
-    // Consistency % = 100 − (SD of bedtimes + SD of waketimes) / 2 scaled to 90min = perfect→0.
     fun sd(vals: List<Float>): Float {
-        val m = vals.average().toFloat(); return kotlin.math.sqrt(vals.sumOf { ((it - m) * (it - m)).toDouble() }.toFloat() / vals.size)
+        val m = vals.average().toFloat()
+        return kotlin.math.sqrt(vals.sumOf { ((it - m) * (it - m)).toDouble() }.toFloat() / vals.size)
     }
     val bedSdH = sd(timings.map { it.bedHour })
     val wakeSdH = sd(timings.map { it.wakeHour })
     val consistencyPct = ((1f - (bedSdH + wakeSdH) / 2f / 1.5f) * 100f).coerceIn(0f, 100f)
     val typicalBed = timings.map { it.bedHour }.average().toFloat()
     val typicalWake = timings.map { it.wakeHour }.average().toFloat()
+    val typicalBedLabel = run {
+        val h = ((typicalBed + 24f) % 24f).toInt()
+        String.format(Locale.US, "%02d:00", h)
+    }
+    val typicalWakeLabel = String.format(Locale.US, "%02d:00", typicalWake.toInt().coerceIn(0, 23))
 
-    // Chart bounds: Y from -4 (20:00) to 12 (12:00 next day), 16h window.
-    val yMin = -4f; val yMax = 12f; val yRange = yMax - yMin
+    // Y from −4h (20:00) to 14h (14:00 next day) — covers late risers.
+    val yMin = -4f; val yMax = 14f; val yRange = yMax - yMin
 
     fun hourToLabel(h: Float): String {
         val norm = ((h % 24f) + 24f) % 24f
@@ -1359,15 +1423,17 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
 
     NoopCard(padding = Metrics.cardPadding) {
         Column(verticalArrangement = Arrangement.spacedBy(Metrics.space14)) {
+            // Header: title + trend-score
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Overline("Sleep")
-                    Text("Consistency", style = NoopType.headline, color = Palette.textPrimary)
+                    Overline("Schedule")
+                    Text("Bedtime & wake time", style = NoopType.headline, color = Palette.textPrimary)
+                    Text("Sleep window over recent nights", style = NoopType.footnote, color = Palette.textSecondary)
                 }
                 Text("${consistencyPct.roundToInt()}%", style = NoopType.chartValue, color = Palette.accent)
             }
 
-            // Canvas chart
+            // Canvas chart — clipped so bars never bleed outside the 160dp box.
             val accentColor = Palette.accent
             val purpleColor = Palette.metricPurple
             val hairlineColor = Palette.hairline
@@ -1375,53 +1441,51 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(160.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(Metrics.cornerSm))
                     .drawBehind {
-                        val yAxisW = 48f
+                        val yAxisW = 52f
                         val chartW = size.width - yAxisW
                         val chartH = size.height
 
-                        // Y-axis grid lines and labels for 20:00, 00:00, 04:00, 08:00, 12:00.
                         val gridHours = listOf(-4f, 0f, 4f, 8f, 12f)
                         val paint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.argb(150, 255, 255, 255)
-                            textSize = 28f
+                            color = android.graphics.Color.argb(140, 200, 200, 200)
+                            textSize = 26f
                             isAntiAlias = true
                         }
                         gridHours.forEach { h ->
-                            val y = chartH * (1f - (h - yMin) / yRange)
-                            drawLine(
-                                color = hairlineColor,
-                                start = Offset(yAxisW, y),
-                                end = Offset(size.width, y),
-                                strokeWidth = 1f,
-                            )
-                            drawContext.canvas.nativeCanvas.drawText(
-                                hourToLabel(h),
-                                0f, y + 10f, paint,
-                            )
+                            val y = (chartH * (1f - (h - yMin) / yRange)).coerceIn(0f, chartH)
+                            drawLine(color = hairlineColor, start = Offset(yAxisW, y), end = Offset(size.width, y), strokeWidth = 1f)
+                            // Draw label above the gridline so it doesn't overflow the bottom.
+                            val textY = (y - 4f).coerceIn(20f, chartH - 4f)
+                            drawContext.canvas.nativeCanvas.drawText(hourToLabel(h), 0f, textY, paint)
                         }
 
-                        // Per-night bars (bed → wake).
+                        // Per-night bars (bed → wake), coordinates clamped to [0, chartH].
                         val barW = (chartW / timings.size * 0.6f).coerceAtLeast(4f)
                         val step = chartW / timings.size
                         timings.forEachIndexed { i, t ->
                             val cx = yAxisW + step * i + step / 2f
-                            val bedY = chartH * (1f - (t.bedHour - yMin) / yRange)
-                            val wakeY = chartH * (1f - (t.wakeHour - yMin) / yRange)
-                            drawRect(
-                                color = accentColor.copy(alpha = 0.55f),
-                                topLeft = Offset(cx - barW / 2f, minOf(bedY, wakeY)),
-                                size = androidx.compose.ui.geometry.Size(barW, kotlin.math.abs(wakeY - bedY).coerceAtLeast(4f)),
+                            val rawBedY = chartH * (1f - (t.bedHour - yMin) / yRange)
+                            val rawWakeY = chartH * (1f - (t.wakeHour - yMin) / yRange)
+                            val topY = minOf(rawBedY, rawWakeY).coerceIn(0f, chartH)
+                            val botY = maxOf(rawBedY, rawWakeY).coerceIn(0f, chartH)
+                            val barH = (botY - topY).coerceAtLeast(4f)
+                            drawRoundRect(
+                                color = accentColor.copy(alpha = 0.65f),
+                                topLeft = Offset(cx - barW / 2f, topY),
+                                size = androidx.compose.ui.geometry.Size(barW, barH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 4f),
                             )
                         }
 
-                        // Dashed typical bed / wake overlay lines.
+                        // Dashed typical bed (purple) / wake (accent) overlay lines.
                         val dashLen = 12f; val gapLen = 8f
                         listOf(typicalBed to purpleColor, typicalWake to accentColor).forEach { (h, col) ->
-                            val y = chartH * (1f - (h - yMin) / yRange)
+                            val y = (chartH * (1f - (h - yMin) / yRange)).coerceIn(0f, chartH)
                             var x = yAxisW
                             while (x < size.width) {
-                                drawLine(col.copy(alpha = 0.6f), Offset(x, y), Offset(minOf(x + dashLen, size.width), y), strokeWidth = 2f)
+                                drawLine(col.copy(alpha = 0.7f), Offset(x, y), Offset(minOf(x + dashLen, size.width), y), strokeWidth = 2f)
                                 x += dashLen + gapLen
                             }
                         }
@@ -1429,7 +1493,7 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
             ) {}
 
             // X-axis day labels (first, mid, last).
-            Row(modifier = Modifier.fillMaxWidth().padding(start = 48.dp)) {
+            Row(modifier = Modifier.fillMaxWidth().padding(start = 52.dp)) {
                 val xLabels = listOf(
                     timings.firstOrNull()?.label.orEmpty(),
                     timings.getOrNull(timings.size / 2)?.label.orEmpty(),
@@ -1441,8 +1505,202 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(Metrics.space14)) {
-                LegendDot("Typical bedtime", Palette.metricPurple)
-                LegendDot("Typical wake", Palette.accent)
+                LegendDot("Typical bedtime  $typicalBedLabel", Palette.metricPurple)
+                LegendDot("Wake  $typicalWakeLabel", Palette.accent)
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(Metrics.divider).background(Palette.hairline))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf(
+                    "Score" to "${consistencyPct.roundToInt()}%",
+                    "Typical" to "${((bedSdH + wakeSdH) / 2f * 60f).roundToInt()} min SD",
+                    "Nights" to "${recent.size}",
+                ).forEach { (lbl, v) ->
+                    Column(modifier = Modifier.weight(1f)) {
+                        Overline(lbl, color = Palette.textTertiary)
+                        Text(v, style = NoopType.captionNumber, color = Palette.textPrimary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Sleep Metric Detail screen
+
+private enum class SleepMetricRange(val label: String, val days: Long?) {
+    WEEK("W", 7), MONTH("M", 30), THREE_MONTH("3M", 90),
+    SIX_MONTH("6M", 180), YEAR("1Y", 365), ALL("ALL", null),
+}
+
+private data class SleepMetricSpec(
+    val title: String,
+    val unit: String,
+    val color: Color,
+    val format: (Double) -> String,
+)
+
+private fun sleepMetricSpec(key: String): SleepMetricSpec = when (key) {
+    "performance"    -> SleepMetricSpec("Rest", "%", Palette.accent) { "${it.roundToInt()}" }
+    "efficiency"     -> SleepMetricSpec("Sleep Efficiency", "%", Palette.statusPositive) { "${it.roundToInt()}" }
+    "consistency"    -> SleepMetricSpec("Consistency", "%", Palette.metricCyan) { "${it.roundToInt()}" }
+    "hours_vs_needed"-> SleepMetricSpec("Hours vs Needed", "%", Palette.accent) { "${it.roundToInt()}" }
+    "restorative"    -> SleepMetricSpec("Restorative", "%", Palette.sleepREM) { "${it.roundToInt()}" }
+    "respiratory"    -> SleepMetricSpec("Respiratory Rate", "rpm", Palette.metricPurple) { String.format(Locale.US, "%.1f", it) }
+    "sleep_debt"     -> SleepMetricSpec("Sleep Debt", "h", Palette.metricRose) { String.format(Locale.US, "%.1f", it) }
+    else             -> SleepMetricSpec(key, "", Palette.accent) { "${it.roundToInt()}" }
+}
+
+private fun buildSleepMetricPoints(days: List<DailyMetric>, key: String): List<Pair<String, Double>> {
+    val needMin = max(450.0, days.mapNotNull { it.totalSleepMin?.takeIf { m -> m > 0.0 } }.average().let { if (it.isNaN()) 480.0 else it })
+    return days.mapNotNull { d ->
+        val v: Double? = when (key) {
+            "performance" -> d.totalSleepMin?.takeIf { it > 0.0 && needMin > 0.0 }?.let { minOf(100.0, it / needMin * 100.0) }
+            "efficiency"  -> d.efficiency?.let { if (it <= 1.0) it * 100.0 else it }
+            "consistency" -> {
+                val idx = days.indexOf(d)
+                val lo = max(0, idx - 13)
+                val window = days.subList(lo, idx + 1).mapNotNull { it.totalSleepMin?.takeIf { m -> m > 0.0 } }
+                if (window.size < 3) null else {
+                    val m = window.average()
+                    val sd = kotlin.math.sqrt(window.sumOf { (it - m) * (it - m) } / window.size)
+                    (100.0 * (1.0 - sd / 90.0)).coerceIn(0.0, 100.0)
+                }
+            }
+            "hours_vs_needed" -> d.totalSleepMin?.takeIf { it > 0.0 }?.let { minOf(100.0, it / needMin * 100.0) }
+            "restorative" -> {
+                val dp = d.deepMin ?: return@mapNotNull null
+                val rm = d.remMin ?: return@mapNotNull null
+                val sl = d.totalSleepMin ?: return@mapNotNull null
+                if (sl > 0.0) (dp + rm) / sl * 100.0 else null
+            }
+            "respiratory" -> d.respRateBpm
+            "sleep_debt"  -> d.totalSleepMin?.let { max(0.0, needMin - it) / 60.0 }
+            else          -> null
+        }
+        v?.takeIf { it.isFinite() }?.let { d.day to it }
+    }
+}
+
+private fun filterSleepMetricPoints(
+    points: List<Pair<String, Double>>,
+    range: SleepMetricRange,
+): List<Pair<String, Double>> {
+    val windowDays = range.days ?: return points
+    val latestDate = points.lastOrNull()?.first?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        ?: return points.takeLast(windowDays.toInt())
+    val cutoff = latestDate.minusDays(windowDays - 1)
+    val filtered = points.filter { (day, _) ->
+        runCatching { LocalDate.parse(day) }.getOrNull()?.let { !it.isBefore(cutoff) } ?: false
+    }
+    return filtered.ifEmpty { points.takeLast(windowDays.toInt()) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SleepMetricDetailScreen(vm: AppViewModel, key: String) {
+    val days by vm.recentDays.collectAsStateWithLifecycle()
+    var range by remember { mutableStateOf(SleepMetricRange.MONTH) }
+
+    val spec = remember(key) { sleepMetricSpec(key) }
+    val allPoints = remember(days, key) { buildSleepMetricPoints(days, key) }
+    val filteredPoints = remember(allPoints, range) { filterSleepMetricPoints(allPoints, range) }
+
+    ScreenScaffold(title = spec.title, subtitle = "Historical sleep trend.") {
+        if (allPoints.size < 2) {
+            DataPendingNote(
+                title = "Not enough history yet",
+                body = "This metric needs at least two nights of data before NOOP can chart it.",
+            )
+            return@ScreenScaffold
+        }
+        if (filteredPoints.size < 2) {
+            DataPendingNote(
+                title = "Not enough history in this range",
+                body = "Try a longer interval — 3M, 6M, 1Y, or ALL.",
+            )
+            return@ScreenScaffold
+        }
+
+        val values = filteredPoints.map { it.second }
+        val dates = filteredPoints.map { it.first }
+        val latest = filteredPoints.last()
+        val minV = values.minOrNull() ?: 0.0
+        val maxV = values.maxOrNull() ?: 0.0
+        val avgV = values.average()
+
+        SectionHeader(spec.title, overline = "Sleep", trailing = "${filteredPoints.size} nights")
+        NoopCard {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Overline("Latest")
+                        Text(
+                            "${spec.format(latest.second)} ${spec.unit}".trim(),
+                            style = NoopType.chartValueLarge,
+                            color = spec.color,
+                        )
+                        Text("as of ${latest.first}", style = NoopType.footnote, color = Palette.textTertiary)
+                    }
+                }
+                SegmentedPillControl(
+                    items = SleepMetricRange.entries,
+                    selection = range,
+                    label = { it.label },
+                    onSelect = { range = it },
+                )
+                // Chart with Y-axis labels and X-axis date row.
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.height(Metrics.chartHeight),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "${spec.format(maxV)} ${spec.unit}".trim(),
+                            style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1,
+                        )
+                        Text(
+                            "${spec.format(avgV)} ${spec.unit}".trim(),
+                            style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1,
+                        )
+                        Text(
+                            "${spec.format(minV)} ${spec.unit}".trim(),
+                            style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1,
+                        )
+                    }
+                    LineChart(
+                        values = values,
+                        modifier = Modifier.weight(1f).height(Metrics.chartHeight),
+                        color = spec.color,
+                        fill = true,
+                        selectionEnabled = true,
+                    )
+                }
+                // X-axis date labels.
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    listOf(dates.first(), dates.getOrNull(dates.lastIndex / 2), dates.last()).forEach { d ->
+                        Text(
+                            d?.let { runCatching { LocalDate.parse(it).format(DateTimeFormatter.ofPattern("d MMM", Locale.US)) }.getOrDefault(it) }.orEmpty(),
+                            style = NoopType.footnote, color = Palette.textTertiary,
+                            modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(Metrics.divider).background(Palette.hairline))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    listOf("Min" to minV, "Avg" to avgV, "Max" to maxV).forEach { (lbl, v) ->
+                        Column(modifier = Modifier.weight(1f)) {
+                            Overline(lbl, color = Palette.textTertiary)
+                            Text(
+                                "${spec.format(v)} ${spec.unit}".trim(),
+                                style = NoopType.bodyNumber, color = Palette.textPrimary,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

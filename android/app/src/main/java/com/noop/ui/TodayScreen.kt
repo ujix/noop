@@ -562,6 +562,7 @@ private fun HeartRateTrendCard(
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text("$max", style = NoopType.footnote, color = Palette.textTertiary)
+                    Text("$avg", style = NoopType.footnote, color = Palette.textTertiary)
                     Text("$min", style = NoopType.footnote, color = Palette.textTertiary)
                 }
                 LineChart(
@@ -573,11 +574,19 @@ private fun HeartRateTrendCard(
                 )
             }
             // X-axis: start / midpoint / end of the day window.
+            // Each bucket = 5 min from midnight of the selected day; compute HH:MM directly.
             Row(modifier = Modifier.fillMaxWidth()) {
-                val xLabels = when {
-                    buckets.size >= 3 -> listOf("00:00", "${(buckets.size / 2) / 12}:${((buckets.size / 2) % 12) * 5}".padStart(5, '0'), "")
-                    else -> listOf("Start", "", "Now")
+                val bucketToTime = { idx: Int ->
+                    val m = idx * 5
+                    String.format(Locale.US, "%02d:%02d", m / 60, m % 60)
                 }
+                val xLabels = if (buckets.size >= 3) {
+                    listOf(
+                        "00:00",
+                        bucketToTime(buckets.size / 2),
+                        if (selectedDay == today) "Now" else bucketToTime(buckets.size - 1),
+                    )
+                } else listOf("Start", "", "Now")
                 xLabels.forEach { lbl ->
                     Text(lbl, style = NoopType.footnote, color = Palette.textTertiary, modifier = Modifier.weight(1f))
                 }

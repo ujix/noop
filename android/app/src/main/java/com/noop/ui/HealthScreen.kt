@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -642,13 +643,41 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
                     label = { it.label },
                     onSelect = { range = it },
                 )
-                LineChart(
-                    values = values,
-                    modifier = Modifier.height(Metrics.chartHeight),
-                    color = detail.color,
-                    fill = true,
-                    selectionEnabled = true, // the Vital Signs detail chart is meant to be tappable
-                )
+                // Chart with Y-axis labels and X-axis date row.
+                val fmtV: (Double) -> String = { v -> "${detail.format(v)} ${detail.unit}".trim() }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.height(Metrics.chartHeight),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(fmtV(max ?: 0.0), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(fmtV(avg ?: 0.0), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                            Text(fmtV(min ?: 0.0), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                        }
+                        LineChart(
+                            values = values,
+                            modifier = Modifier.weight(1f).height(Metrics.chartHeight),
+                            color = detail.color,
+                            fill = true,
+                            selectionEnabled = true,
+                        )
+                    }
+                    val days = filteredPoints.map { it.first }
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        listOf(days.first(), days.getOrNull(days.lastIndex / 2), days.last()).forEach { d ->
+                            Text(
+                                d?.let { runCatching { LocalDate.parse(it).format(DateTimeFormatter.ofPattern("d MMM", Locale.US)) }.getOrDefault(it) }.orEmpty(),
+                                style = NoopType.footnote, color = Palette.textTertiary,
+                                modifier = Modifier.weight(1f), maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
