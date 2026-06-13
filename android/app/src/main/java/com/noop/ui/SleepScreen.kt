@@ -100,7 +100,6 @@ import kotlin.math.roundToInt
 fun SleepScreen(
     vm: AppViewModel,
     onOpenJournal: () -> Unit = {},
-    onMetricClick: (String) -> Unit = {},
 ) {
     val days by vm.recentDays.collectAsStateWithLifecycle()
     val live by vm.live.collectAsStateWithLifecycle()
@@ -150,6 +149,8 @@ fun SleepScreen(
     val context = LocalContext.current
     var showJournalPrompt by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val metricSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var detailMetricKey by remember { mutableStateOf<String?>(null) }
     @Suppress("UNUSED_VARIABLE") val scope = rememberCoroutineScope()
     LaunchedEffect(sleeps) {
         val latestEnd = sleeps.lastOrNull()?.endTs ?: return@LaunchedEffect
@@ -200,6 +201,18 @@ fun SleepScreen(
         }
     }
 
+    val currentDetailKey = detailMetricKey
+    if (currentDetailKey != null) {
+        ModalBottomSheet(
+            onDismissRequest = { detailMetricKey = null },
+            sheetState = metricSheetState,
+            containerColor = Palette.surfaceRaised,
+            contentColor = Palette.textPrimary,
+        ) {
+            SleepMetricDetailSheetContent(vm = vm, key = currentDetailKey)
+        }
+    }
+
     // The navigated night, decoded once per (offset, data) change — chevron taps re-pick
     // instantly without re-parsing stagesJSON on every recomposition. (#160)
     val night = remember(nightOffset, sleeps, days) { selectNight(sleeps, days, nightOffset) }
@@ -236,7 +249,7 @@ fun SleepScreen(
             )
             if (model != null) {
                 Spacer(Modifier.height(Metrics.selectorTopUp))
-                MetricGrid(model, onMetricClick = onMetricClick)
+                MetricGrid(model, onMetricClick = { detailMetricKey = it })
                 Spacer(Modifier.height(Metrics.selectorTopUp))
                 StagesVsTypical(model)
                 Spacer(Modifier.height(Metrics.selectorTopUp))
@@ -422,56 +435,58 @@ private fun NightNavHeader(
     }
     val blockShape = androidx.compose.foundation.shape.RoundedCornerShape(Metrics.cornerSm)
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Metrics.selectorSpacing),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = { if (canGoOlder) onNavigate(offset + 1) },
-            enabled = canGoOlder,
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.space6)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.selectorSpacing),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous night", tint = if (canGoOlder) Palette.accent else Palette.textTertiary)
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .clip(blockShape)
-                .background(Palette.accent.copy(alpha = StrandAlpha.selectedFill))
-                .border(Metrics.divider, Palette.accent.copy(alpha = StrandAlpha.selectedBorder), blockShape)
-                .clickable(enabled = onPickNightDate != null) { showDatePicker = true }
-                .padding(vertical = Metrics.selectorPadding, horizontal = Metrics.selectorPadding),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(nightLabel, style = NoopType.caption, color = Palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(top = Metrics.space2),
+            IconButton(
+                onClick = { if (canGoOlder) onNavigate(offset + 1) },
+                enabled = canGoOlder,
             ) {
-                Text(
-                    clock ?: "—",
-                    style = NoopType.captionNumber,
-                    color = Palette.accent,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (session != null) {
-                    Icon(
-                        Icons.Filled.Edit,
-                        contentDescription = "Adjust sleep times",
-                        tint = Palette.textTertiary,
-                        modifier = Modifier.size(11.dp).clickable { editingTimes = true },
-                    )
-                }
+                Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous night", tint = if (canGoOlder) Palette.accent else Palette.textTertiary)
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(blockShape)
+                    .background(Palette.accent.copy(alpha = StrandAlpha.selectedFill))
+                    .border(Metrics.divider, Palette.accent.copy(alpha = StrandAlpha.selectedBorder), blockShape)
+                    .clickable(enabled = onPickNightDate != null) { showDatePicker = true }
+                    .padding(vertical = Metrics.selectorPadding, horizontal = Metrics.selectorPadding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(nightLabel, style = NoopType.caption, color = Palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(
+                onClick = { if (canGoNewer) onNavigate(offset - 1) },
+                enabled = canGoNewer,
+            ) {
+                Icon(Icons.Filled.ChevronRight, contentDescription = "Next night", tint = if (canGoNewer) Palette.accent else Palette.textTertiary)
             }
         }
-        IconButton(
-            onClick = { if (canGoNewer) onNavigate(offset - 1) },
-            enabled = canGoNewer,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.ChevronRight, contentDescription = "Next night", tint = if (canGoNewer) Palette.accent else Palette.textTertiary)
+            Text(
+                clock ?: "—",
+                style = NoopType.captionNumber,
+                color = Palette.accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (session != null) {
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = "Adjust sleep times",
+                    tint = Palette.textTertiary,
+                    modifier = Modifier.size(14.dp).clickable { editingTimes = true },
+                )
+            }
         }
     }
 }
@@ -1404,9 +1419,14 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
     }
     val bedSdH = sd(timings.map { it.bedHour })
     val wakeSdH = sd(timings.map { it.wakeHour })
-    val consistencyPct = ((1f - (bedSdH + wakeSdH) / 2f / 1.5f) * 100f).coerceIn(0f, 100f)
     val typicalBed = timings.map { it.bedHour }.average().toFloat()
     val typicalWake = timings.map { it.wakeHour }.average().toFloat()
+    // Count nights where bed AND wake are within 45 min of the typical.
+    val threshold = 0.75f
+    val consistentNights = timings.count { t ->
+        abs(t.bedHour - typicalBed) <= threshold && abs(t.wakeHour - typicalWake) <= threshold
+    }
+    val consistencyPct = (consistentNights.toFloat() / timings.size * 100f).coerceIn(0f, 100f)
     val typicalBedLabel = run {
         val h = ((typicalBed + 24f) % 24f).toInt()
         String.format(Locale.US, "%02d:00", h)
@@ -1454,10 +1474,10 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
                             isAntiAlias = true
                         }
                         gridHours.forEach { h ->
-                            val y = (chartH * (1f - (h - yMin) / yRange)).coerceIn(0f, chartH)
+                            val y = (chartH * ((h - yMin) / yRange)).coerceIn(0f, chartH)
                             drawLine(color = hairlineColor, start = Offset(yAxisW, y), end = Offset(size.width, y), strokeWidth = 1f)
-                            // Draw label above the gridline so it doesn't overflow the bottom.
-                            val textY = (y - 4f).coerceIn(20f, chartH - 4f)
+                            // Draw label below the gridline (top of chart = earliest time).
+                            val textY = (y + 16f).coerceIn(20f, chartH - 4f)
                             drawContext.canvas.nativeCanvas.drawText(hourToLabel(h), 0f, textY, paint)
                         }
 
@@ -1466,8 +1486,8 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
                         val step = chartW / timings.size
                         timings.forEachIndexed { i, t ->
                             val cx = yAxisW + step * i + step / 2f
-                            val rawBedY = chartH * (1f - (t.bedHour - yMin) / yRange)
-                            val rawWakeY = chartH * (1f - (t.wakeHour - yMin) / yRange)
+                            val rawBedY = chartH * ((t.bedHour - yMin) / yRange)
+                            val rawWakeY = chartH * ((t.wakeHour - yMin) / yRange)
                             val topY = minOf(rawBedY, rawWakeY).coerceIn(0f, chartH)
                             val botY = maxOf(rawBedY, rawWakeY).coerceIn(0f, chartH)
                             val barH = (botY - topY).coerceAtLeast(4f)
@@ -1482,7 +1502,7 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
                         // Dashed typical bed (purple) / wake (accent) overlay lines.
                         val dashLen = 12f; val gapLen = 8f
                         listOf(typicalBed to purpleColor, typicalWake to accentColor).forEach { (h, col) ->
-                            val y = (chartH * (1f - (h - yMin) / yRange)).coerceIn(0f, chartH)
+                            val y = (chartH * ((h - yMin) / yRange)).coerceIn(0f, chartH)
                             var x = yAxisW
                             while (x < size.width) {
                                 drawLine(col.copy(alpha = 0.7f), Offset(x, y), Offset(minOf(x + dashLen, size.width), y), strokeWidth = 2f)
@@ -1702,6 +1722,113 @@ fun SleepMetricDetailScreen(vm: AppViewModel, key: String) {
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SleepMetricDetailSheetContent(vm: AppViewModel, key: String) {
+    val days by vm.recentDays.collectAsStateWithLifecycle()
+    var range by remember { mutableStateOf(SleepMetricRange.MONTH) }
+    val spec = remember(key) { sleepMetricSpec(key) }
+    val allPoints = remember(days, key) { buildSleepMetricPoints(days, key) }
+    val filteredPoints = remember(allPoints, range) { filterSleepMetricPoints(allPoints, range) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        if (allPoints.size < 2) {
+            Text("Not enough history yet", style = NoopType.headline, color = Palette.textPrimary)
+            Text(
+                "This metric needs at least two nights of data.",
+                style = NoopType.subhead, color = Palette.textSecondary,
+            )
+            Spacer(Modifier.height(16.dp))
+        } else if (filteredPoints.size < 2) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Overline("Sleep")
+                    Text(spec.title, style = NoopType.title2, color = Palette.textPrimary)
+                }
+            }
+            SegmentedPillControl(
+                items = SleepMetricRange.entries,
+                selection = range,
+                label = { it.label },
+                onSelect = { range = it },
+            )
+            Text("Not enough history in this range — try 3M, 6M, or ALL.", style = NoopType.subhead, color = Palette.textSecondary)
+            Spacer(Modifier.height(16.dp))
+        } else {
+            val values = filteredPoints.map { it.second }
+            val dates = filteredPoints.map { it.first }
+            val latest = filteredPoints.last()
+            val minV = values.minOrNull() ?: 0.0
+            val maxV = values.maxOrNull() ?: 0.0
+            val avgV = values.average()
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Overline("Sleep · ${filteredPoints.size} nights")
+                    Text(spec.title, style = NoopType.title2, color = Palette.textPrimary)
+                    Text("as of ${latest.first}", style = NoopType.footnote, color = Palette.textTertiary)
+                }
+                Text(
+                    "${spec.format(latest.second)} ${spec.unit}".trim(),
+                    style = NoopType.chartValue,
+                    color = spec.color,
+                )
+            }
+            SegmentedPillControl(
+                items = SleepMetricRange.entries,
+                selection = range,
+                label = { it.label },
+                onSelect = { range = it },
+            )
+            Row(
+                modifier = Modifier.height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Column(
+                    modifier = Modifier.height(Metrics.chartHeight),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("${spec.format(maxV)} ${spec.unit}".trim(), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                    Text("${spec.format(avgV)} ${spec.unit}".trim(), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                    Text("${spec.format(minV)} ${spec.unit}".trim(), style = NoopType.footnote, color = Palette.textTertiary, maxLines = 1)
+                }
+                LineChart(
+                    values = values,
+                    modifier = Modifier.weight(1f).height(Metrics.chartHeight),
+                    color = spec.color,
+                    fill = true,
+                    selectionEnabled = true,
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf(dates.first(), dates.getOrNull(dates.lastIndex / 2), dates.last()).forEach { d ->
+                    Text(
+                        d?.let { runCatching { LocalDate.parse(it).format(DateTimeFormatter.ofPattern("d MMM", Locale.US)) }.getOrDefault(it) }.orEmpty(),
+                        style = NoopType.footnote, color = Palette.textTertiary,
+                        modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Box(modifier = Modifier.fillMaxWidth().height(Metrics.divider).background(Palette.hairline))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf("Min" to minV, "Avg" to avgV, "Max" to maxV).forEach { (lbl, v) ->
+                    Column(modifier = Modifier.weight(1f)) {
+                        Overline(lbl, color = Palette.textTertiary)
+                        Text(
+                            "${spec.format(v)} ${spec.unit}".trim(),
+                            style = NoopType.captionNumber, color = Palette.textPrimary,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

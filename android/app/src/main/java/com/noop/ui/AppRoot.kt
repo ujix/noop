@@ -327,7 +327,6 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     SleepScreen(
                         vm = viewModel,
                         onOpenJournal = { nav.navigateTopLevel(Destination.Insights.route) },
-                        onMetricClick = { key -> nav.navigate("sleep_metric_detail/$key") },
                     )
                 }
                 composable(Destination.SleepMetricDetail.route) { backStackEntry ->
