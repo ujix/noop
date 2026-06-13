@@ -338,7 +338,12 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                 composable(Destination.Intelligence.route) { IntelligenceScreen(viewModel) }
 
                 // --- Placeholder routes (later waves fill these in) ---
-                composable(Destination.Stress.route) { StressScreen(viewModel) }
+                composable(Destination.Stress.route) {
+                    StressScreen(
+                        vm = viewModel,
+                        onBreathe = { nav.navigateTopLevel(Destination.Breathe.route) },
+                    )
+                }
                 composable(Destination.Trends.route) { TrendsScreen(viewModel) }
                 composable(Destination.Insights.route) { InsightsScreen(viewModel) }
                 composable(Destination.Compare.route) { CompareScreen(viewModel) }

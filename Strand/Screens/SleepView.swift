@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import StrandDesign
+import StrandAnalytics
 import WhoopStore
 
 // MARK: - SleepView
@@ -12,6 +13,8 @@ import WhoopStore
 //   2. A uniform grid of fixed StatTiles, each with a sparkline and a "vs typical"
 //      caption: Performance, Efficiency, Consistency, Hours vs Needed, Restorative,
 //      Respiratory, Sleep Debt.
+//   2b. The sleep-debt LEDGER card — a rolling 14-night running balance of (slept −
+//      personal need) with a plain-English read and a diverging per-night delta bar.
 //   3. "Stages vs typical" NoopCard — Deep/REM/Light as horizontal bars, last-night
 //      minutes with a marker at the personal typical (mean) so highs/lows pop.
 //   4. A 30-day asleep-hours ChartCard trend.
@@ -67,6 +70,7 @@ struct SleepView: View {
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                         hero(resolved)
                         metricGrid(resolved)
+                        sleepDebtLedger(resolved)
                         stagesVsTypical(resolved)
                         durationTrend(resolved)
                     }
@@ -307,6 +311,92 @@ struct SleepView: View {
         }
     }
 
+    // MARK: - 2b. Sleep-debt ledger (rolling 14-night running balance)
+
+    /// A running balance of (slept − personal need) across the recent fortnight, surfaced
+    /// as one card: the net debt/surplus headline, a plain-English read, and a diverging
+    /// bar of each night's delta (surplus above the line, deficit below). Honest: a simple
+    /// accumulator — a surplus night offsets a deficit one — capped at 14 nights, no-data
+    /// nights skipped. (#242)
+    @ViewBuilder
+    private func sleepDebtLedger(_ model: SleepModel) -> some View {
+        let ledger = model.sleepDebtLedger
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Sleep-debt ledger", overline: "Last 14 nights",
+                          trailing: "running balance")
+            NoopCard {
+                if ledger.nightCount == 0 {
+                    Text("No nights with sleep data yet — your ledger fills in as you wear the strap to bed.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 14) {
+                        // Headline: net balance + the short tag (DEBT / SURPLUS / ON TARGET).
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(debtHeadline(ledger))
+                                .font(StrandFont.number(26))
+                                .foregroundStyle(debtBalanceColor(ledger))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                            Spacer(minLength: 8)
+                            Text(debtTag(ledger))
+                                .font(StrandFont.captionNumber)
+                                .foregroundStyle(debtBalanceColor(ledger))
+                        }
+                        // Plain-English read.
+                        Text(debtRead(ledger))
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        // Per-night diverging delta bars (surplus up, deficit down).
+                        debtDeltaBars(ledger)
+                        Divider().overlay(StrandPalette.hairline)
+                        ChartFooter([
+                            ("Balance", debtSigned(ledger.balanceMin)),
+                            ("Per-night need", durationText(ledger.needMin)),
+                            ("Nights", "\(ledger.nightCount)"),
+                        ])
+                    }
+                }
+            }
+        }
+    }
+
+    /// The diverging per-night delta strip: each night a bar from the centre line — up
+    /// (accent) for a surplus, down (rose) for a deficit — scaled to the largest |delta|.
+    @ViewBuilder
+    private func debtDeltaBars(_ ledger: SleepDebtLedger) -> some View {
+        let deltas = ledger.nights.map { $0.deltaMin }
+        let scale = max(deltas.map { abs($0) }.max() ?? 1, 1)
+        GeometryReader { geo in
+            let n = max(deltas.count, 1)
+            let slot = geo.size.width / CGFloat(n)
+            let barW = max(2, slot * 0.6)
+            let midY = geo.size.height / 2
+            ZStack(alignment: .topLeading) {
+                // Centre (zero) line.
+                Rectangle()
+                    .fill(StrandPalette.hairline)
+                    .frame(height: 1)
+                    .position(x: geo.size.width / 2, y: midY)
+                ForEach(Array(deltas.enumerated()), id: \.offset) { i, d in
+                    let frac = CGFloat(abs(d) / scale)
+                    let h = max(2, frac * (midY - 2))
+                    let x = slot * CGFloat(i) + slot / 2
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(d >= 0 ? StrandPalette.accent : StrandPalette.metricRose)
+                        .frame(width: barW, height: h)
+                        // Surplus grows upward from the centre, deficit downward.
+                        .position(x: x, y: d >= 0 ? midY - h / 2 : midY + h / 2)
+                }
+            }
+        }
+        .frame(height: 56)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Per-night sleep balance: \(ledger.nightCount) nights, net \(debtSigned(ledger.balanceMin))")
+    }
+
     // MARK: - 3. Stages vs typical
 
     @ViewBuilder
@@ -454,7 +544,18 @@ struct SleepView: View {
             typicalDeepMin: typicalStageMin(\.deepMin),
             typicalRemMin: typicalStageMin(\.remMin),
             typicalLightMin: typicalStageMin(\.lightMin),
-            trendPoints: durationTrendPoints)
+            trendPoints: durationTrendPoints,
+            sleepDebtLedger: debtLedger)
+    }
+
+    /// The rolling 14-night sleep-debt ledger from the cached daily metrics. Uses the
+    /// SAME personal sleep need the tiles use (`sleepNeedMin`, ≥ 7.5 h, the per-user
+    /// override over the 8 h default), measured against each night's `totalSleepMin`.
+    /// Skips nights with no sleep (the analytics function does the skip). (#242)
+    private var debtLedger: SleepDebtLedger {
+        SleepDebt.ledger(
+            series: repo.days.map { (day: $0.day, totalSleepMin: $0.totalSleepMin) },
+            needHours: sleepNeedMin / 60.0)
     }
 
     // MARK: - Derived model
@@ -784,6 +885,52 @@ struct SleepView: View {
         }
     }
 
+    // MARK: - Sleep-debt ledger formatting
+
+    /// "≈2h 10m" magnitude headline — leading "≈" because it's an accumulated estimate.
+    /// Reads "On target" inside the deadband so a few stray minutes don't show as debt.
+    private func debtHeadline(_ ledger: SleepDebtLedger) -> String {
+        if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return "On target" }
+        return "≈\(durationText(ledger.magnitudeMin))"
+    }
+
+    /// Short tag under/beside the headline: DEBT / SURPLUS / ON TARGET.
+    private func debtTag(_ ledger: SleepDebtLedger) -> String {
+        if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return "balanced" }
+        return ledger.isDebt ? "sleep debt" : "surplus"
+    }
+
+    /// Plain-English read of the running balance over the window.
+    private func debtRead(_ ledger: SleepDebtLedger) -> String {
+        let nights = ledger.nightCount
+        let span = "the last \(nights) night\(nights == 1 ? "" : "s")"
+        if ledger.magnitudeMin < SleepDebt.onTargetBandMin {
+            return "You're roughly on top of your sleep across \(span) — slept minutes balance out against your need."
+        }
+        let mag = durationText(ledger.magnitudeMin)
+        if ledger.isDebt {
+            return "You've banked about \(mag) of sleep debt over \(span). Surplus nights count back against it — an earlier night or two would clear it."
+        }
+        return "You're carrying about \(mag) of surplus over \(span) — you've slept past your need on balance. Nicely ahead."
+    }
+
+    /// Color the balance by sign + size: surplus/within-band → positive green, modest
+    /// debt → warning, heavier debt → critical.
+    private func debtBalanceColor(_ ledger: SleepDebtLedger) -> Color {
+        if ledger.magnitudeMin < SleepDebt.onTargetBandMin || !ledger.isDebt {
+            return StrandPalette.statusPositive
+        }
+        // A debt: amber up to ~3 h accumulated, red beyond.
+        return ledger.magnitudeMin < 180 ? StrandPalette.statusWarning : StrandPalette.statusCritical
+    }
+
+    /// Signed "+1h 20m" / "−2h 10m" / "0m" balance string.
+    private func debtSigned(_ minutes: Double) -> String {
+        if abs(minutes) < 1 { return "0m" }
+        let sign = minutes >= 0 ? "+" : "−"
+        return "\(sign)\(durationText(abs(minutes)))"
+    }
+
     private func efficiencyText(_ night: Night) -> String {
         let e = efficiencyPct(night)
         return e.map { "\(Int($0.rounded()))%" } ?? "—"
@@ -925,6 +1072,10 @@ private struct SleepModel {
     let typicalLightMin: Double?
 
     let trendPoints: [TrendPoint]
+
+    /// Rolling 14-night sleep-debt ledger: Σ(slept − personal need) across the recent
+    /// fortnight, with the per-night deltas behind it. Computed once per data change.
+    let sleepDebtLedger: SleepDebtLedger
 }
 
 private struct Stages {

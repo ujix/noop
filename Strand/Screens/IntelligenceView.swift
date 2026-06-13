@@ -1,5 +1,6 @@
 import SwiftUI
 import StrandDesign
+import StrandAnalytics
 
 /// Intelligence — NOOP's own recovery/strain/sleep scores, computed on-device from raw strap data
 /// using the WHOOP model shape. Makes the app independent of WHOOP's cloud for live-collected days.
@@ -12,6 +13,7 @@ struct IntelligenceView: View {
     var body: some View {
         ScreenScaffold(title: "Intelligence",
                        subtitle: "NOOP scores your charge, effort and rest itself — on-device, no cloud.") {
+            if let f = forecast { forecastCard(f) }
             explainerCard
             if intelligence.computing {
                 StrandCard(padding: 20) {
@@ -91,6 +93,63 @@ struct IntelligenceView: View {
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
+
+    /// Evening forecast of tomorrow-morning Charge from tonight's known levers. Anchored to
+    /// the recent Charge baseline, nudged by today's Effort vs your norm and how much sleep
+    /// you typically bank, then mean-reverted. `results` is newest-first; the forecaster wants
+    /// oldest→newest, so each series is reversed. `nil` (and the card hidden) until there are
+    /// enough scored nights to anchor honestly — never a fabricated number.
+    private var forecast: RecoveryForecast? {
+        let charge = intelligence.results.compactMap { $0.recovery }.reversed()
+        let effort = intelligence.results.compactMap { $0.strain }.reversed()
+        // Planned sleep tonight = the recent typical night (the honest "if you sleep ~Xh"
+        // assumption surfaced in the card), from the scored nights that have a sleep total.
+        let sleeps = intelligence.results.compactMap { $0.sleepMin }
+        let plannedHours = sleeps.isEmpty ? RecoveryForecaster.defaultNeedHours
+            : (sleeps.reduce(0, +) / Double(sleeps.count)) / 60.0
+        return RecoveryForecaster.forecast(recentCharge: Array(charge),
+                                           recentEffort: Array(effort),
+                                           todayEffort: intelligence.results.first?.strain,
+                                           plannedSleepHours: plannedHours)
+    }
+
+    private func forecastCard(_ f: RecoveryForecast) -> some View {
+        StrandCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sunrise.fill").foregroundStyle(StrandPalette.accent)
+                            .accessibilityHidden(true)
+                        Text("Tomorrow's Charge").font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                    }
+                    Spacer()
+                    SourceBadge("Estimate")
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("\(Int(f.charge.rounded()))").font(StrandFont.number(40))
+                        .foregroundStyle(recoveryColor(f.charge))
+                    Text("± \(Int(f.band.rounded()))").font(StrandFont.number(20))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                    Spacer()
+                }
+                Text("You'll likely wake around \(Int(f.charge.rounded())) ± \(Int(f.band.rounded())) Charge if you sleep about \(sleepHoursLabel(f.plannedSleepHours)) tonight.")
+                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Estimate from today's effort, your typical sleep and your \(f.nights)-night recovery baseline — not a measurement. Your real Charge is scored from tomorrow's HRV when you wake.")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// "~7h" / "~7h 30m" for the planned-sleep assumption (hours rounded to the nearest 30 min).
+    private func sleepHoursLabel(_ hours: Double) -> String {
+        let half = (hours * 2).rounded() / 2
+        let h = Int(half)
+        let m = Int((half - Double(h)) * 60)
+        return m == 0 ? "\(h)h" : "\(h)h \(m)m"
+    }
 
     private var explainerCard: some View {
         StrandCard(padding: 20) {

@@ -60,6 +60,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.analytics.AnalyticsEngine
+import com.noop.analytics.SleepDebt
+import com.noop.analytics.SleepDebtLedger
 import com.noop.data.DailyMetric
 import com.noop.data.SleepSession
 import kotlinx.coroutines.launch
@@ -268,6 +270,8 @@ fun SleepScreen(
             if (model != null) {
                 Spacer(Modifier.height(Metrics.selectorTopUp))
                 MetricGrid(model, onMetricClick = { detailMetricKey = it })
+                Spacer(Modifier.height(Metrics.selectorTopUp))
+                SleepDebtLedgerCard(model.sleepDebtLedger)
                 Spacer(Modifier.height(Metrics.selectorTopUp))
                 StagesVsTypical(model)
                 Spacer(Modifier.height(Metrics.selectorTopUp))
@@ -676,6 +680,114 @@ private fun MetricGrid(m: SleepModel, onMetricClick: (String) -> Unit = {}) {
     }
 }
 
+// MARK: - 2b. Sleep-debt ledger (rolling 14-night running balance)
+
+/**
+ * A running balance of (slept − personal need) across the recent fortnight, surfaced as one
+ * card: the net debt/surplus headline, a plain-English read, and a diverging bar of each
+ * night's delta (surplus above the centre line, deficit below). Honest: a simple accumulator
+ * — a surplus night offsets a deficit one — capped at 14 nights, no-data nights skipped.
+ * Mirrors the macOS SleepView sleepDebtLedger card section-for-section. (#242)
+ */
+@Composable
+internal fun SleepDebtLedgerCard(ledger: SleepDebtLedger) {
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader("Sleep-debt ledger", overline = "Last 14 nights", trailing = "running balance")
+        NoopCard(padding = Metrics.cardPadding) {
+            if (ledger.nightCount == 0) {
+                Text(
+                    "No nights with sleep data yet — your ledger fills in as you wear the strap to bed.",
+                    style = NoopType.subhead,
+                    color = Palette.textTertiary,
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(Metrics.space14)) {
+                    // Headline: net balance + the short tag (sleep debt / surplus / balanced).
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            debtHeadline(ledger),
+                            style = NoopType.tileValueLarge,
+                            color = debtBalanceColor(ledger),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            debtTag(ledger),
+                            style = NoopType.captionNumber,
+                            color = debtBalanceColor(ledger),
+                        )
+                    }
+                    // Plain-English read.
+                    Text(
+                        debtRead(ledger),
+                        style = NoopType.subhead,
+                        color = Palette.textSecondary,
+                    )
+                    // Per-night diverging delta bars (surplus up, deficit down).
+                    DebtDeltaBars(ledger)
+                    Hairline()
+                    ChartFooter(
+                        listOf(
+                            "Balance" to debtSigned(ledger.balanceMin),
+                            "Per-night need" to durationText(ledger.needMin),
+                            "Nights" to "${ledger.nightCount}",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The diverging per-night delta strip: each night a bar from the centre line — up (accent)
+ * for a surplus, down (rose) for a deficit — scaled to the largest |delta|.
+ */
+@Composable
+private fun DebtDeltaBars(ledger: SleepDebtLedger) {
+    val deltas = ledger.nights.map { it.deltaMin }
+    val scale = max(deltas.maxOfOrNull { abs(it) } ?: 1.0, 1.0)
+    val accentColor = Palette.accent
+    val deficitColor = Palette.metricRose
+    val centreColor = Palette.hairline
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .semantics {
+                contentDescription =
+                    "Per-night sleep balance: ${ledger.nightCount} nights, net ${debtSigned(ledger.balanceMin)}"
+            }
+            .drawBehind {
+                val n = max(deltas.size, 1)
+                val slot = size.width / n
+                val barW = max(2f, slot * 0.6f)
+                val midY = size.height / 2f
+                // Centre (zero) line.
+                drawLine(
+                    color = centreColor,
+                    start = Offset(0f, midY),
+                    end = Offset(size.width, midY),
+                    strokeWidth = 1f,
+                )
+                deltas.forEachIndexed { i, d ->
+                    val frac = (abs(d) / scale).toFloat().coerceIn(0f, 1f)
+                    val h = max(2f, frac * (midY - 2f))
+                    val cx = slot * i + slot / 2f
+                    // Surplus grows upward from the centre, deficit downward.
+                    val top = if (d >= 0.0) midY - h else midY
+                    drawRoundRect(
+                        color = if (d >= 0.0) accentColor else deficitColor,
+                        topLeft = Offset(cx - barW / 2f, top),
+                        size = Size(barW, h),
+                        cornerRadius = CornerRadius(2f, 2f),
+                    )
+                }
+            },
+    )
+}
+
 // MARK: - 3. Stages vs typical
 
 @Composable
@@ -1053,6 +1165,9 @@ internal data class SleepModel(
     /** Persisted per-epoch segments as ordered (stage, minutes) weights — the REAL
      *  hypnogram (on-device APPROXIMATE staging) — or null → synthesized fallback. */
     val realSegments: List<Pair<String, Float>>?,
+    /** Rolling 14-night sleep-debt ledger: Σ(slept − personal need) across the recent
+     *  fortnight, with the per-night deltas behind it. Computed once per data change. (#242) */
+    val sleepDebtLedger: SleepDebtLedger,
 )
 
 /** The night the ◀/▶ chevrons selected: its session, the day-metric key it resolves to,
@@ -1247,6 +1362,15 @@ internal fun buildSleepModel(
         ?.let { parsePersistedSegments(it.stagesJSON) }
         ?.map { seg -> seg.stage to ((seg.end - seg.start) / 60f) }
 
+    // Rolling 14-night sleep-debt ledger from the window ending on the selected night, using
+    // the SAME personal need the tiles use (`needMin`, ≥ 7.5 h — the per-user override over the
+    // 8 h default). The analytics caps to the most-recent 14 counted nights and skips no-data
+    // nights. (#242)
+    val sleepDebtLedger = SleepDebt.ledger(
+        series = windowDays.map { it.day to it.totalSleepMin },
+        needHours = needMin / 60.0,
+    )
+
     return SleepModel(
         stages = stages,
         clockLabel = clockLabel(latest, session),
@@ -1267,6 +1391,7 @@ internal fun buildSleepModel(
         trendDebtHours = trendDebtHours,
         trendDates = trendDates,
         realSegments = realSegments,
+        sleepDebtLedger = sleepDebtLedger,
     )
 }
 
@@ -1351,6 +1476,55 @@ private fun debtColor(debt: Double?): Color = when {
     debt < 15.0 -> Palette.statusPositive
     debt < 60.0 -> Palette.statusWarning
     else -> Palette.statusCritical
+}
+
+// MARK: - Sleep-debt ledger formatting (mirror SleepView.swift)
+
+/**
+ * "≈2h 10m" magnitude headline — leading "≈" because it's an accumulated estimate. Reads
+ * "On target" inside the deadband so a few stray minutes don't show as debt.
+ */
+private fun debtHeadline(ledger: SleepDebtLedger): String =
+    if (ledger.magnitudeMin < SleepDebt.ON_TARGET_BAND_MIN) "On target"
+    else "≈${durationText(ledger.magnitudeMin)}"
+
+/** Short tag beside the headline: sleep debt / surplus / balanced. */
+private fun debtTag(ledger: SleepDebtLedger): String = when {
+    ledger.magnitudeMin < SleepDebt.ON_TARGET_BAND_MIN -> "balanced"
+    ledger.isDebt -> "sleep debt"
+    else -> "surplus"
+}
+
+/** Plain-English read of the running balance over the window. */
+private fun debtRead(ledger: SleepDebtLedger): String {
+    val nights = ledger.nightCount
+    val span = "the last $nights night${if (nights == 1) "" else "s"}"
+    if (ledger.magnitudeMin < SleepDebt.ON_TARGET_BAND_MIN) {
+        return "You're roughly on top of your sleep across $span — slept minutes balance out against your need."
+    }
+    val mag = durationText(ledger.magnitudeMin)
+    return if (ledger.isDebt) {
+        "You've banked about $mag of sleep debt over $span. Surplus nights count back against it — an earlier night or two would clear it."
+    } else {
+        "You're carrying about $mag of surplus over $span — you've slept past your need on balance. Nicely ahead."
+    }
+}
+
+/**
+ * Color the balance by sign + size: surplus/within-band → positive green, modest debt →
+ * warning, heavier debt → critical.
+ */
+private fun debtBalanceColor(ledger: SleepDebtLedger): Color = when {
+    ledger.magnitudeMin < SleepDebt.ON_TARGET_BAND_MIN || !ledger.isDebt -> Palette.statusPositive
+    ledger.magnitudeMin < 180.0 -> Palette.statusWarning
+    else -> Palette.statusCritical
+}
+
+/** Signed "+1h 20m" / "−2h 10m" / "0m" balance string. */
+private fun debtSigned(minutes: Double): String {
+    if (abs(minutes) < 1.0) return "0m"
+    val sign = if (minutes >= 0.0) "+" else "−"
+    return "$sign${durationText(abs(minutes))}"
 }
 
 private fun durationText(minutes: Double): String {

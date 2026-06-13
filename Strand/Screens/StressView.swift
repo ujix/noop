@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import StrandDesign
+import StrandAnalytics
 import WhoopStore
 
 // MARK: - Stress Monitor
@@ -36,6 +37,13 @@ struct StressView: View {
     /// Trend window for the chart (W/M/3M/6M/1Y/ALL).
     @State private var range: ExploreRange = .month
 
+    /// Today's intraday stress read (hourly timeline + sustained-high flag), computed
+    /// from the day's banked HR + R-R via the SAME 0–3 proxy the daily score uses. Nil
+    /// until the async read completes; `.empty` when the day has no usable intraday HR.
+    @State private var daytime: DaytimeStress.Result?
+    /// Drives the Breathe sheet presented from the sustained-stress suggestion.
+    @State private var showBreathe = false
+
     /// Cached StressModel + the input signature it was built from. Rebuilding the
     /// model is expensive (z-score derivation + per-day date parsing over the full
     /// history), so we recompute it only when its inputs actually change — NOT on
@@ -62,6 +70,25 @@ struct StressView: View {
         storedSeries = await repo.series(key: "stress", source: "my-whoop")
         loaded = true
         rebuildModelIfNeeded()
+        await loadDaytime()
+    }
+
+    /// Read TODAY's banked HR + R-R and build the intraday stress timeline. Local-day
+    /// window [midnight, now]; the helper buckets it into waking hours and reuses the
+    /// daily score's math, so this is the same proxy at a finer grain — never a new score.
+    private func loadDaytime() async {
+        let cal = Calendar.current
+        let startOfDay = cal.startOfDay(for: Date())
+        let from = Int(startOfDay.timeIntervalSince1970)
+        let to = Int(Date().timeIntervalSince1970)
+        let tz = TimeZone.current.secondsFromGMT(for: Date())
+
+        let hr = await repo.hrSamples(from: from, to: to, limit: 200_000)
+        guard hr.count >= DaytimeStress.minHourHRSamples else { daytime = .empty; return }
+        let rr = (try? await repo.storeHandle()?.rrIntervals(
+            deviceId: repo.deviceId, from: from, to: to, limit: 200_000)) ?? []
+
+        daytime = DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz)
     }
 
     /// Recompute the cached `StressModel` only when (repo.days, storedSeries)
@@ -89,12 +116,116 @@ struct StressView: View {
                 tileGrid(model)
             }
 
-            // 3. Trend over the chosen window.
+            // 3. Today's intraday timeline — when in the day stress ran high, + a
+            //    passive Breathe suggestion when the recent hours stay elevated.
+            if let daytime, !daytime.scored.isEmpty {
+                daytimeSection(daytime)
+            }
+
+            // 4. Trend over the chosen window.
             trendSection(model)
 
-            // 4. Transparency — how the number is built.
+            // 5. Transparency — how the number is built.
             methodologyCard(model)
         }
+        // The sustained-stress suggestion opens the existing Breathe trainer in a sheet —
+        // in-app and passive (no alert / notification), inheriting the app environment.
+        .sheet(isPresented: $showBreathe) {
+            NavigationStack { BreathingView() }
+        }
+    }
+
+    // MARK: 3 · Daytime timeline (intraday, same 0–3 proxy)
+
+    @ViewBuilder
+    private func daytimeSection(_ day: DaytimeStress.Result) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Today's Timeline", overline: "Intraday",
+                          trailing: timelineTrailing(day))
+
+            NoopCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("Stress through the day").strandOverline()
+                        Spacer()
+                        if let peak = day.peak, let lvl = peak.level {
+                            Text("peak \(String(format: "%.1f", lvl)) · \(hourLabel(peak.hour))")
+                                .font(StrandFont.captionNumber)
+                                .foregroundStyle(StressRamp.color(lvl))
+                        }
+                    }
+
+                    DaytimeStressStrip(hours: day.hours)
+
+                    // Hour ruler under the strip (first / midday / last covered hour).
+                    if let lo = day.hours.first?.hour, let hi = day.hours.last?.hour {
+                        HStack {
+                            Text(hourLabel(lo)).font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                            Spacer()
+                            Text(hourLabel((lo + hi) / 2)).font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                            Spacer()
+                            Text(hourLabel(hi)).font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                    }
+
+                    Text("Each bar is one waking hour, scored against your own calm hours today — the same 0–3 proxy as the score above, read hour by hour. Hours without enough data are left blank.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // Sustained-high suggestion — only when the recent run stays in the HIGH band.
+            if day.sustainedHigh { sustainedBreatheCard(day) }
+        }
+    }
+
+    /// "avg 1.4 · 9h" summary for the timeline header, from the scored hours.
+    private func timelineTrailing(_ day: DaytimeStress.Result) -> String {
+        let n = day.scored.count
+        guard let mean = day.dayMean else { return "\(n)h" }
+        return "avg " + String(format: "%.1f", mean) + " · \(n)h"
+    }
+
+    /// A passive, in-app nudge to run a Breathe session after a sustained high-stress run.
+    /// No notification — just a card with a CTA that opens the existing trainer.
+    private func sustainedBreatheCard(_ day: DaytimeStress.Result) -> some View {
+        NoopCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "lungs.fill")
+                        .foregroundStyle(StrandPalette.accent)
+                    Text("Sustained high stress").strandOverline()
+                    Spacer()
+                    StatePill("\(day.sustainedRun)h elevated", tone: .warning, showsDot: true)
+                }
+                Text("Your last \(day.sustainedRun) hours have stayed in the high band. A few minutes of paced breathing can help downshift your nervous system.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    showBreathe = true
+                } label: {
+                    Label("Start a Breathe session", systemImage: "wind")
+                        .font(StrandFont.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(StrandPalette.accent)
+            }
+        }
+    }
+
+    /// "6 am" / "2 pm" style hour-of-day label.
+    private func hourLabel(_ hour: Int) -> String {
+        let h = ((hour % 24) + 24) % 24
+        let ampm = h < 12 ? "am" : "pm"
+        let h12 = h % 12 == 0 ? 12 : h % 12
+        return "\(h12) \(ampm)"
     }
 
     // MARK: 1 · Hero gauge card
@@ -637,6 +768,56 @@ struct StressArc: Shape {
         let end = Angle.degrees(180 + 180 * Double(min(max(progress, 0), 1)))
         p.addArc(center: center, radius: radius, startAngle: start, endAngle: end, clockwise: false)
         return p
+    }
+}
+
+// MARK: - Daytime stress strip (one bar per waking hour)
+//
+// A compact intraday strip: each waking hour is a rounded bar whose HEIGHT and COLOR
+// track its 0–3 stress proxy on the shared StressRamp. Hours with no signal render as a
+// faint baseline tick (honest gap), never a guessed value.
+
+struct DaytimeStressStrip: View {
+    let hours: [DaytimeStress.HourPoint]
+
+    private let barHeight: CGFloat = 64
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 3) {
+            ForEach(hours, id: \.startTs) { point in
+                bar(for: point)
+            }
+        }
+        .frame(height: barHeight)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    @ViewBuilder
+    private func bar(for point: DaytimeStress.HourPoint) -> some View {
+        if let level = point.level {
+            // Map 0–3 onto a readable height; floor so even a calm hour is visible.
+            let frac = CGFloat(min(max(level / 3.0, 0), 1))
+            let h = max(6, barHeight * (0.18 + 0.82 * frac))
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(StressRamp.color(level))
+                .frame(height: h)
+                .frame(maxWidth: .infinity)
+        } else {
+            // No-data hour: a faint baseline tick so the day's shape stays honest.
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(StrandPalette.surfaceInset)
+                .frame(height: 6)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var accessibilitySummary: String {
+        let scored = hours.compactMap { p in p.level.map { (p.hour, $0) } }
+        guard !scored.isEmpty else { return "No intraday stress data yet today." }
+        let parts = scored.map { "\($0.0):00 \(String(format: "%.1f", $0.1))" }
+        return "Hourly stress today: " + parts.joined(separator: ", ")
     }
 }
 

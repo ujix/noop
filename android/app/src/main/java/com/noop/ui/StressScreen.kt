@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.noop.analytics.DaytimeStress
 import com.noop.data.DailyMetric
 import java.util.Locale
 import kotlin.math.exp
@@ -66,7 +70,7 @@ import kotlin.math.sqrt
 // internally comparable.
 
 @Composable
-fun StressScreen(vm: AppViewModel) {
+fun StressScreen(vm: AppViewModel, onBreathe: () -> Unit = {}) {
     val days by vm.recentDays.collectAsStateWithLifecycle()
 
     // Stored daily "stress" values (0–3), keyed by day. Loaded once per device; the
@@ -82,6 +86,14 @@ fun StressScreen(vm: AppViewModel) {
         storedLoaded = true
     }
 
+    // Today's intraday stress read (hourly timeline + sustained-high flag), from the day's
+    // banked HR + R-R via the SAME 0–3 proxy the daily score uses. Null until the read
+    // completes; DaytimeStress.Result.EMPTY when the day has no usable intraday HR.
+    var daytime by remember { mutableStateOf<DaytimeStress.Result?>(null) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        daytime = runCatching { loadDaytimeStress(vm) }.getOrDefault(DaytimeStress.Result.EMPTY)
+    }
+
     // Rebuild the model only when the inputs (days, stored) actually change — the
     // derivation is O(n) over the full history, so we memoize on the inputs.
     val model = remember(days, stored) { StressModel.build(days, stored) }
@@ -91,17 +103,39 @@ fun StressScreen(vm: AppViewModel) {
         subtitle = "Autonomic load from HRV and resting heart rate",
     ) {
         when {
-            model != null -> StressContent(model)
+            model != null -> StressContent(model, daytime, onBreathe)
             !storedLoaded -> StressLoading()
             else -> StressEmpty()
         }
     }
 }
 
+/**
+ * Read TODAY's banked HR + R-R and build the intraday stress timeline. Local-day window
+ * [midnight, now]; [DaytimeStress] buckets it into waking hours and reuses the daily
+ * score's math, so this is the same proxy at a finer grain — never a new score.
+ */
+private suspend fun loadDaytimeStress(vm: AppViewModel): DaytimeStress.Result {
+    val nowSeconds = System.currentTimeMillis() / 1000L
+    val tzOffsetSeconds = java.util.TimeZone.getDefault().getOffset(nowSeconds * 1_000L) / 1_000L
+    // Local midnight (wall-clock seconds): floor the LOCAL time to the day, then undo the
+    // offset so the bound is back on the wall clock the samples are stored in.
+    val localNow = nowSeconds + tzOffsetSeconds
+    val from = (localNow - Math.floorMod(localNow, 86_400L)) - tzOffsetSeconds
+    val hr = vm.repo.hrSamples("my-whoop", from, nowSeconds, limit = 200_000)
+    if (hr.size < DaytimeStress.minHourHrSamples) return DaytimeStress.Result.EMPTY
+    val rr = vm.repo.rrIntervals("my-whoop", from, nowSeconds, limit = 200_000)
+    return DaytimeStress.analyze(hr, rr, tzOffsetSeconds)
+}
+
 // MARK: - Loaded content
 
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.StressContent(model: StressModel) {
+private fun androidx.compose.foundation.layout.ColumnScope.StressContent(
+    model: StressModel,
+    daytime: DaytimeStress.Result?,
+    onBreathe: () -> Unit,
+) {
     // 1 · HERO — the gauge + band + one plain-English line, all in one card.
     NoopCard {
         Column(
@@ -134,11 +168,171 @@ private fun androidx.compose.foundation.layout.ColumnScope.StressContent(model: 
         StressTiles(model)
     }
 
-    // 3 · Trend over the chosen window.
+    // 3 · Today's intraday timeline — when in the day stress ran high, + a passive Breathe
+    //     suggestion when the recent hours stay elevated.
+    if (daytime != null && daytime.scored.isNotEmpty()) {
+        StressDaytimeSection(daytime, onBreathe)
+    }
+
+    // 4 · Trend over the chosen window.
     StressTrendSection(model)
 
-    // 4 · Transparency — how the number is built.
+    // 5 · Transparency — how the number is built.
     StressMethodologyCard(model)
+}
+
+// MARK: - 3 · Daytime timeline (intraday, same 0–3 proxy)
+
+@Composable
+private fun StressDaytimeSection(day: DaytimeStress.Result, onBreathe: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader("Today's Timeline", overline = "Intraday", trailing = timelineTrailing(day))
+
+        NoopCard {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Overline("Stress through the day", modifier = Modifier.weight(1f))
+                    val peak = day.peak
+                    val peakLevel = peak?.level
+                    if (peak != null && peakLevel != null) {
+                        Text(
+                            "peak ${String.format(Locale.US, "%.1f", peakLevel)} · ${hourLabel(peak.hour)}",
+                            style = NoopType.captionNumber,
+                            color = StressRamp.color(peakLevel),
+                        )
+                    }
+                }
+
+                DaytimeStressStrip(day.hours)
+
+                // Hour ruler under the strip (first / midday / last covered hour).
+                val lo = day.hours.firstOrNull()?.hour
+                val hi = day.hours.lastOrNull()?.hour
+                if (lo != null && hi != null) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(hourLabel(lo), style = NoopType.footnote, color = Palette.textTertiary)
+                        Spacer(Modifier.weight(1f))
+                        Text(hourLabel((lo + hi) / 2), style = NoopType.footnote, color = Palette.textTertiary)
+                        Spacer(Modifier.weight(1f))
+                        Text(hourLabel(hi), style = NoopType.footnote, color = Palette.textTertiary)
+                    }
+                }
+
+                Text(
+                    "Each bar is one waking hour, scored against your own calm hours today — " +
+                        "the same 0–3 proxy as the score above, read hour by hour. Hours without " +
+                        "enough data are left blank.",
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                )
+            }
+        }
+
+        // Sustained-high suggestion — only when the recent run stays in the HIGH band.
+        if (day.sustainedHigh) SustainedBreatheCard(day, onBreathe)
+    }
+}
+
+/** "avg 1.4 · 9h" summary for the timeline header, from the scored hours. */
+private fun timelineTrailing(day: DaytimeStress.Result): String {
+    val n = day.scored.size
+    val mean = day.dayMean ?: return "${n}h"
+    return "avg " + String.format(Locale.US, "%.1f", mean) + " · ${n}h"
+}
+
+/**
+ * A passive, in-app nudge to run a Breathe session after a sustained high-stress run. No
+ * notification — just a card with a CTA that opens the existing trainer.
+ */
+@Composable
+private fun SustainedBreatheCard(day: DaytimeStress.Result, onBreathe: () -> Unit) {
+    NoopCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Overline("Sustained high stress", modifier = Modifier.weight(1f))
+                StatePill("${day.sustainedRun}h elevated", tone = StrandTone.Warning, showsDot = true)
+            }
+            Text(
+                "Your last ${day.sustainedRun} hours have stayed in the high band. A few minutes " +
+                    "of paced breathing can help downshift your nervous system.",
+                style = NoopType.subhead,
+                color = Palette.textSecondary,
+            )
+            Button(
+                onClick = onBreathe,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Palette.accent),
+            ) {
+                Text("Start a Breathe session", style = NoopType.headline, color = Palette.surfaceBase)
+            }
+        }
+    }
+}
+
+/** "6 am" / "2 pm" style hour-of-day label. */
+private fun hourLabel(hour: Int): String {
+    val h = ((hour % 24) + 24) % 24
+    val ampm = if (h < 12) "am" else "pm"
+    val h12 = if (h % 12 == 0) 12 else h % 12
+    return "$h12 $ampm"
+}
+
+// MARK: - Daytime stress strip (one bar per waking hour)
+//
+// A compact intraday strip: each waking hour is a rounded bar whose HEIGHT and COLOR track
+// its 0–3 stress proxy on the shared StressRamp. Hours with no signal render as a faint
+// baseline tick (honest gap), never a guessed value. Mirrors macOS DaytimeStressStrip.
+
+@Composable
+private fun DaytimeStressStrip(hours: List<DaytimeStress.HourPoint>) {
+    val barHeight = 64.dp
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(barHeight)
+            .semantics { contentDescription = daytimeStripDescription(hours) },
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        for (point in hours) {
+            val level = point.level
+            if (level != null) {
+                // Map 0–3 onto a readable height; floor so even a calm hour is visible.
+                val frac = (level / 3.0).toFloat().coerceIn(0f, 1f)
+                val h = barHeight * (0.18f + 0.82f * frac)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(h.coerceAtLeast(6.dp))
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(StressRamp.color(level)),
+                )
+            } else {
+                // No-data hour: a faint baseline tick so the day's shape stays honest.
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Palette.surfaceInset),
+                )
+            }
+        }
+    }
+}
+
+private fun daytimeStripDescription(hours: List<DaytimeStress.HourPoint>): String {
+    val scored = hours.mapNotNull { p -> p.level?.let { p.hour to it } }
+    if (scored.isEmpty()) return "No intraday stress data yet today."
+    val parts = scored.map { "${it.first}:00 ${String.format(Locale.US, "%.1f", it.second)}" }
+    return "Hourly stress today: " + parts.joinToString(", ")
 }
 
 // MARK: - 2 · Today's tiles (uniform grid)

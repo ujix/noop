@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +27,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.noop.analytics.RecoveryForecast
+import com.noop.analytics.RecoveryForecaster
 import com.noop.data.DailyMetric
 import java.time.LocalDate
 import java.util.Calendar
@@ -52,10 +55,28 @@ fun IntelligenceScreen(vm: AppViewModel) {
     // Newest first for the per-day list (macOS ForEach renders most-recent at top).
     val ordered = remember(days) { days.reversed() }
 
+    // Evening forecast of tomorrow-morning Charge from tonight's known levers. `days` is
+    // already OLDEST→NEWEST (what the forecaster wants); today's Effort is the newest day.
+    // null (and the card hidden) until there are enough scored nights to anchor honestly.
+    val forecast = remember(days) {
+        val charge = days.mapNotNull { it.recovery }
+        val effort = days.mapNotNull { it.strain }
+        val sleeps = days.mapNotNull { it.totalSleepMin }
+        val plannedHours = if (sleeps.isEmpty()) RecoveryForecaster.defaultNeedHours
+            else (sleeps.sum() / sleeps.size) / 60.0
+        RecoveryForecaster.forecast(
+            recentCharge = charge,
+            recentEffort = effort,
+            todayEffort = ordered.firstOrNull()?.strain,
+            plannedSleepHours = plannedHours,
+        )
+    }
+
     ScreenScaffold(
         title = "Intelligence",
         subtitle = "Charge, effort and rest — scored with the model, explained in plain terms.",
     ) {
+        forecast?.let { ForecastCard(it) }
         ExplainerCard()
         ModelBreakdownCard()
 
@@ -108,6 +129,63 @@ fun IntelligenceScreen(vm: AppViewModel) {
             }
         }
     }
+}
+
+// MARK: - Tomorrow's Charge forecast (ported from IntelligenceView.forecastCard)
+//
+// An evening ESTIMATE of tomorrow-morning Charge from tonight's known levers —
+// today's Effort vs your norm, your typical sleep, and the recent recovery baseline.
+// Labelled an estimate with a ± band; the real Charge is scored from tomorrow's HRV.
+
+@Composable
+private fun ForecastCard(f: RecoveryForecast) {
+    val charge = f.charge.roundToInt()
+    val band = f.band.roundToInt()
+    NoopCard(padding = 20.dp) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        Icons.Filled.WbSunny,
+                        contentDescription = null,
+                        tint = Palette.accent,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text("Tomorrow's Charge", style = NoopType.headline, color = Palette.textPrimary)
+                }
+                SourceBadge("Estimate")
+            }
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("$charge", style = NoopType.number(40f), color = recoveryStatColor(f.charge))
+                Text("± $band", style = NoopType.number(20f), color = Palette.textTertiary)
+            }
+            Text(
+                "You'll likely wake around $charge ± $band Charge if you sleep about " +
+                    "${sleepHoursLabel(f.plannedSleepHours)} tonight.",
+                style = NoopType.subhead,
+                color = Palette.textSecondary,
+            )
+            Text(
+                "Estimate from today's effort, your typical sleep and your ${f.nights}-night " +
+                    "recovery baseline — not a measurement. Your real Charge is scored from " +
+                    "tomorrow's HRV when you wake.",
+                style = NoopType.footnote,
+                color = Palette.textTertiary,
+            )
+        }
+    }
+}
+
+/** "~7h" / "~7h 30m" for the planned-sleep assumption (rounded to the nearest 30 min). */
+private fun sleepHoursLabel(hours: Double): String {
+    val half = (hours * 2).roundToInt() / 2.0
+    val h = half.toInt()
+    val m = ((half - h) * 60).roundToInt()
+    return if (m == 0) "${h}h" else "${h}h ${m}m"
 }
 
 // MARK: - Explainer (ported from IntelligenceView.explainerCard)
