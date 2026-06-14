@@ -318,6 +318,7 @@ class WhoopConnectionService : Service() {
         val key = listOf(
             state.connected,
             state.backfilling,
+            state.worn,
             recoveryPct?.roundToInt(),
             state.batteryPct?.roundToInt(),
         ).joinToString("|")
@@ -339,6 +340,7 @@ class WhoopConnectionService : Service() {
         val title = when {
             !state.connected   -> "Reconnecting to your WHOOP…"
             state.backfilling  -> "Syncing strap history…"
+            !state.worn        -> "WHOOP is off wrist"
             else               -> "Connected to your WHOOP"
         }
         val detail = buildList {

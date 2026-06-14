@@ -26,10 +26,11 @@ object BatteryAlertNotifier {
     /**
      * Evaluate the current vs previous battery state and fire at most one alert per crossing:
      * - LOW: `batteryPct` first drops below [LOW_BATTERY_THRESHOLD] in a session.
-     * - FULL: `batteryPct` reaches 100 while `charging` is true.
+     * - FULL: `batteryPct` reaches 100 (charging flag not required — WHOOP firmware clears it the
+     *   moment the cell tops out, so `charging == true` would miss the crossing).
      *
      * [prevPct]/[currPct] are the strap battery percentages rounded to Int (null = unknown).
-     * [charging] reflects the current charging state.
+     * [charging] reflects the charging state (not used for the 100% gate; kept for context).
      */
     @SuppressLint("MissingPermission")
     fun onBatteryUpdate(
@@ -61,9 +62,10 @@ object BatteryAlertNotifier {
                     .build()
                 NotificationManagerCompat.from(context).notify(NOTIF_ID_LOW, n)
             }
-            // Charge complete: reached 100% while plugged in (and wasn't already at 100%).
+            // Charge complete: first reading at 100% (regardless of charging flag — firmware clears
+            // it at full charge, so the strap typically shows charging=false when it tops out).
             val wasBelow100 = prevPct == null || prevPct < 100
-            if (charging == true && currPct == 100 && wasBelow100) {
+            if (currPct == 100 && wasBelow100) {
                 val n = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_stat_heart)
                     .setContentTitle("Strap fully charged")
