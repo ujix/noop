@@ -634,19 +634,22 @@ private fun BodyConsole(live: LiveState, bpm: Int?, activeConnection: Boolean, z
 
 @Composable
 private fun HeartReadout(live: LiveState, bpm: Int?, activeConnection: Boolean, zone: Int) {
-    // Tint by the live HR zone when streaming, the Effort world otherwise — the workouts/live colour world.
+    // Off-wrist: suppress the live HR value so we never show a body-reading taken through air.
+    val worn = live.worn
+    val displayBpm = if (worn) bpm else null
+
+    // Tint by the live HR zone when streaming + worn, the Effort world otherwise.
     val tint = when {
-        bpm == null -> Palette.textSecondary
+        displayBpm == null -> Palette.textSecondary
         zone >= 1 -> Palette.hrZoneColor(zone)
         else -> Palette.effortColor
     }
     val color by animateColorAsState(tint, tween(Motion.durationStandard), label = "hrColor")
-    // Pulse the ring on each new HR sample. animateFloatAsState toward a target that flips with the
-    // value gives a single ease-out "beat" without an infinite loop.
-    val pulseTarget = if (bpm == null) 0f else ((bpm % 2)).toFloat()
+    // Pulse the ring on each new HR sample. Suppressed when off-wrist (displayBpm == null).
+    val pulseTarget = if (displayBpm == null) 0f else ((displayBpm % 2)).toFloat()
     val pulse by animateFloatAsState(pulseTarget, tween(300), label = "hrPulse")
     val ringScale = 0.96f + 0.11f * pulse
-    val ringColor = if (bpm == null) Palette.hairline else tint
+    val ringColor = if (displayBpm == null) Palette.hairline else tint
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -667,7 +670,7 @@ private fun HeartReadout(live: LiveState, bpm: Int?, activeConnection: Boolean, 
                     .aspectRatio(1f)
                     .scale(0.9f + 0.1f * pulse)
                     .clip(CircleShape)
-                    .background(tint.copy(alpha = if (bpm == null) 0f else 0.14f)),
+                    .background(tint.copy(alpha = if (displayBpm == null) 0f else 0.14f)),
             )
             Box(
                 modifier = Modifier
@@ -685,9 +688,17 @@ private fun HeartReadout(live: LiveState, bpm: Int?, activeConnection: Boolean, 
                     .border(1.dp, Palette.hairline, CircleShape),
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(text = bpm?.toString() ?: "—", style = NoopType.number(72f), color = color)
+                Text(
+                    text = when {
+                        !worn -> "---"
+                        displayBpm != null -> displayBpm.toString()
+                        else -> "—"
+                    },
+                    style = NoopType.number(72f),
+                    color = color,
+                )
                 Text("bpm", style = NoopType.subhead, color = Palette.textSecondary)
-                if (zone >= 1) {
+                if (worn && zone >= 1) {
                     Text("ZONE $zone", style = NoopType.overline, color = tint)
                 }
             }
