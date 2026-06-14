@@ -446,23 +446,148 @@ struct TodayView: View {
         let d = displayDay
         let score = d?.recovery
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader(synthesisTitle, overline: "At a glance",
-                          trailing: greetingWord)
+            // Screen-4 header: the day's Synthesis title + a SOLID/CALIBRATING data-confidence
+            // pill (SOLID gold once a recovery score exists, CALIBRATING slate while the baseline
+            // forms). The greeting moves to the SectionHeader's trailing slot.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                SectionHeader(synthesisTitle, overline: "At a glance",
+                              trailing: greetingWord)
+                recoveryStatePill(score: score)
+            }
 
             // The three daily scores as layered ring gauges, side by side, each in its own
-            // colour world, floated over a scenic Charge-tinted backdrop. The grid reflows to a
-            // single column on a narrow (iPhone) width so the rings never crush.
+            // colour world, floated over a scenic Charge-tinted backdrop. The Charge ring is the
+            // big gold hero recovery ring (carrying the micro "NOOP" wordmark + number + state
+            // label via RecoveryRing). The grid reflows to a single column on a narrow (iPhone)
+            // width so the rings never crush.
             scoreHeroRow(d: d, score: score)
 
-            // The plain-English read-out — a green-tinted Synthesis coaching card under the rings.
+            // Screen-4 metric card: HRV / Resting HR / Respiratory as labelled metric rows, the
+            // vitals that drive recovery, in one frosted gold-tinted card under the hero ring.
+            recoveryVitalsCard(d)
+
+            // The plain-English read-out — a gold-tinted Synthesis coaching card. When the HRV
+            // baseline is established it leads with the screen-4 "HRV X% over baseline — you're
+            // primed…" read; otherwise it falls back to the calibrating / recovery-state synthesis.
             InsightCard(
                 category: "Synthesis",
-                status: calibrationStatus ?? "\(synthesisWord(score))",
-                detail: calibrationDetail ?? "\(synthesisDetail(d))",
+                status: calibrationStatus ?? "\(hrvInsightStatus(d, score: score))",
+                detail: calibrationDetail ?? "\(hrvInsightDetail(d, score: score))",
                 statusColor: score.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textTertiary,
                 tint: StrandPalette.chargeColor
             )
         }
+    }
+
+    // MARK: Screen-4 — data-confidence pill, vitals metric card, HRV-baseline insight
+
+    /// The SOLID / CALIBRATING data-confidence chip beside the hero title (README screen 4).
+    /// SOLID (gold) once today carries a settled recovery score; CALIBRATING (slate) while the
+    /// HRV baseline is still forming (it shows the running "N of 4" count); for a navigated past
+    /// day with no score it falls back to CALIBRATING without a count. Drives off the SAME
+    /// recovery / calibration bindings the rings use — presentation only.
+    @ViewBuilder
+    private func recoveryStatePill(score: Double?) -> some View {
+        if score != nil {
+            ScoreStatePill(.solid)
+        } else if let n = recoveryCalibration {
+            ScoreStatePill(.calibrating, text: "Calibrating — \(n) of \(Baselines.minNightsSeed)")
+        } else {
+            ScoreStatePill(.calibrating)
+        }
+    }
+
+    /// Screen-4 "metric card": HRV / Resting HR / Respiratory as a stack of labelled metric rows
+    /// inside one frosted card — the three vitals that feed recovery. HRV reads teal (its biometric
+    /// hue), Resting HR burnt-orange, Respiratory gold. Values come straight from the selected day's
+    /// `DailyMetric` (respiratory falls back to the loaded sparkline tail, as the tile does), so this
+    /// changes no data — it only re-presents existing bindings as the README's metric-row component.
+    @ViewBuilder
+    private func recoveryVitalsCard(_ d: DailyMetric?) -> some View {
+        NoopCard(tint: StrandPalette.chargeColor) {
+            VStack(spacing: 0) {
+                metricRow(icon: "waveform.path.ecg", label: "HRV",
+                          value: d?.avgHrv.map { "\(Int($0.rounded()))" } ?? "—", unit: "ms",
+                          tint: StrandPalette.metricCyan)
+                Divider().overlay(StrandPalette.hairline)
+                metricRow(icon: "heart.fill", label: "Resting HR",
+                          value: d?.restingHr.map { "\($0)" } ?? "—", unit: "bpm",
+                          tint: StrandPalette.metricRose)
+                Divider().overlay(StrandPalette.hairline)
+                metricRow(icon: "lungs.fill", label: "Respiratory",
+                          value: d?.respRateBpm.map { String(format: "%.1f", $0) }
+                              ?? latestString("resp_rate", decimals: 1),
+                          unit: "rpm",
+                          tint: StrandPalette.accent)
+            }
+        }
+    }
+
+    /// One README "metric row": a metric-hue line icon, a secondary label, and a right-aligned bold
+    /// value with a small unit. Rows are divided by a hairline. Shared by the Today vitals card.
+    @ViewBuilder
+    private func metricRow(icon: String, label: String, value: String, unit: String, tint: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22)
+                .accessibilityHidden(true)
+            Text(label)
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Spacer(minLength: 8)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(StrandFont.number(20))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(unit)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .padding(.vertical, 11)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(value) \(unit)")
+    }
+
+    /// Screen-4 insight headline — when the HRV baseline is established, the gold "primed" read
+    /// keyed on how far today's HRV sits above/below the learned baseline ("HRV 12% over baseline");
+    /// otherwise the recovery-state word. Purely a re-presentation of the existing recovery + HRV
+    /// bindings (no new computation beyond the baseline mean already available on `repo.days`).
+    private func hrvInsightStatus(_ d: DailyMetric?, score: Double?) -> String {
+        guard let pct = hrvBaselineDeltaPct(d) else { return synthesisWord(score) }
+        let sign = pct >= 0 ? "over" : "under"
+        return "HRV \(abs(pct))% \(sign) baseline"
+    }
+
+    /// The supporting line for the screen-4 insight: the primed/steady read tied to the HRV delta,
+    /// folding in the recovery-state synthesis so the card still reads as a coaching summary.
+    private func hrvInsightDetail(_ d: DailyMetric?, score: Double?) -> String {
+        guard let pct = hrvBaselineDeltaPct(d) else { return synthesisDetail(d) }
+        let lead: String
+        if pct >= 8 { lead = "Your nervous system is well-recovered — you're primed to push" }
+        else if pct >= -8 { lead = "You're in balance with your baseline — moderate strain is well-judged" }
+        else { lead = "HRV is below your baseline — ease into the day" }
+        return lead + ". " + synthesisDetail(d)
+    }
+
+    /// Today's HRV as a percentage above/below the learned baseline (mean of prior nights' avgHrv),
+    /// rounded to a whole percent. nil until there are enough banked HRV nights to form a stable
+    /// baseline (mirrors the recovery seed gate) — the insight then falls back to the state word.
+    private func hrvBaselineDeltaPct(_ d: DailyMetric?) -> Int? {
+        guard let today = d?.avgHrv, today > 0 else { return nil }
+        // Baseline = mean of the prior nights' HRV, excluding the selected day so "vs baseline"
+        // compares today against history. Needs the same seed depth recovery uses to be honest.
+        let prior = repo.days
+            .filter { $0.day != selectedDayKey }
+            .compactMap(\.avgHrv)
+            .filter { $0 > 0 }
+        guard prior.count >= Baselines.minNightsSeed else { return nil }
+        let baseline = prior.reduce(0, +) / Double(prior.count)
+        guard baseline > 0 else { return nil }
+        return Int(((today - baseline) / baseline * 100).rounded())
     }
 
     /// The three score rings (Charge / Effort / Rest) over a scenic hero background.

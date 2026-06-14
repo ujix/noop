@@ -8,6 +8,11 @@ import StrandDesign
 struct RootTabView: View {
     @EnvironmentObject private var repo: Repository
 
+    /// Which quick-action screen the centre FAB is presenting (nil = sheet closed).
+    @State private var quickAction: QuickAction?
+    /// Drives the FAB press-state (gentle scale, dimmed gold shadow) — design-system feedback.
+    @State private var fabPressed = false
+
     init() {
         // Plain Titanium bar: pin the background to `surfaceBase` and clear the system
         // selection-indicator tint so there is NO gold/accent pill behind the selected
@@ -23,16 +28,101 @@ struct RootTabView: View {
     }
 
     var body: some View {
-        TabView {
-            tab(TodayView(), "Today", "circle.hexagongrid.fill")
-            tab(TrendsView(), "Trends", "chart.xyaxis.line")
-            tab(LiveView(), "Live", "waveform.path.ecg")
-            tab(SleepView(), "Sleep", "bed.double.fill")
-            moreTab
+        // The native TabView keeps every existing destination + system gesture; the signature
+        // raised gold FAB is overlaid on top, bottom-centre, floating ~20pt above the bar (a
+        // native TabView can't host a centre item that overflows the bar, so we float it).
+        ZStack(alignment: .bottom) {
+            TabView {
+                tab(TodayView(), "Today", "circle.hexagongrid.fill")
+                tab(TrendsView(), "Trends", "chart.xyaxis.line")
+                tab(LiveView(), "Live", "waveform.path.ecg")
+                tab(SleepView(), "Sleep", "bed.double.fill")
+                moreTab
+            }
+            .tint(StrandPalette.accent)
+
+            centreFAB
         }
-        .tint(StrandPalette.accent)
         .preferredColorScheme(.dark)
         .task { await repo.refresh() }
+        .sheet(item: $quickAction) { action in
+            quickActionDestination(action)
+        }
+    }
+
+    // MARK: - Centre FAB
+
+    /// The README "Tab bar" signature: a 46pt gold-gradient circle raised ~20pt above the bar,
+    /// goldDeepText "+" glyph, FAB shadow `0 8 18 -6 gold@.7`. Tapping opens the quick-action sheet.
+    private var centreFAB: some View {
+        Button {
+            quickAction = .menu
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(StrandPalette.goldDeepText)
+                .frame(width: 46, height: 46)
+                .background(
+                    Circle()
+                        .fill(LinearGradient(gradient: StrandPalette.goldGradient,
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                )
+                // Spec FAB shadow: 0 8 18 -6 gold@.7 (the -6 spread ≈ a tight radius on a 46pt disc).
+                .shadow(color: StrandPalette.gold.opacity(fabPressed ? 0.3 : 0.7), radius: 9, x: 0, y: 8)
+                .scaleEffect(fabPressed ? 0.94 : 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Quick actions")
+        .accessibilityHint("Start a workout, log your journal, or breathe")
+        // Raised ~20pt above the bar; the bottom inset keeps it clear of the home indicator.
+        .offset(y: -20)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in if !fabPressed { withAnimation(StrandMotion.interactive) { fabPressed = true } } }
+                .onEnded { _ in withAnimation(StrandMotion.interactive) { fabPressed = false } }
+        )
+    }
+
+    // MARK: - Quick-action sheet
+
+    /// Routes a chosen quick action to the existing screen, or shows the action menu itself.
+    @ViewBuilder
+    private func quickActionDestination(_ action: QuickAction) -> some View {
+        switch action {
+        case .menu:
+            QuickActionSheet { picked in
+                // Swap the menu for the chosen destination on the next runloop so the sheet
+                // re-presents cleanly (avoids dismiss/re-present races).
+                quickAction = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { quickAction = picked }
+            }
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.hidden)
+        case .workout:
+            quickScreen(WorkoutsView())
+        case .journal:
+            quickScreen(InsightsView())
+        case .breathe:
+            quickScreen(BreathingView())
+        }
+    }
+
+    /// Wraps a routed quick-action screen in its own nav stack so it has a title bar + the
+    /// shared surface background, matching how the More-tab links present these same views.
+    private func quickScreen<V: View>(_ view: V) -> some View {
+        NavigationStack {
+            view
+                .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(StrandPalette.surfaceBase, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { quickAction = nil }
+                            .foregroundStyle(StrandPalette.accent)
+                    }
+                }
+        }
+        .preferredColorScheme(.dark)
     }
 
     private func tab<V: View>(_ view: V, _ title: LocalizedStringKey, _ icon: String) -> some View {
@@ -98,6 +188,88 @@ struct RootTabView: View {
             }
         }
         .listRowBackground(StrandPalette.surfaceRaised)
+    }
+}
+
+// MARK: - Quick actions (centre FAB)
+
+/// The destinations the centre FAB can present. `.menu` is the action sheet itself; the rest
+/// route to existing screens. `Identifiable` so it drives `.sheet(item:)`.
+private enum QuickAction: Int, Identifiable {
+    case menu, workout, journal, breathe
+    var id: Int { rawValue }
+}
+
+/// The bottom sheet of quick actions presented by the centre FAB. Spec bottom sheet: surfaceOverlay
+/// fill, gold hairline top edge, grab handle, three flat action rows that route to existing screens.
+private struct QuickActionSheet: View {
+    /// Called with the picked destination (the host swaps the menu for that screen).
+    let onPick: (QuickAction) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Grab handle (36×4) in the slate hairline tone.
+            Capsule()
+                .fill(StrandPalette.hairlineStrong)
+                .frame(width: 36, height: 4)
+                .padding(.top, 10)
+                .padding(.bottom, 14)
+
+            Text("QUICK ACTIONS")
+                .font(StrandFont.overline)
+                .tracking(1.6)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+
+            VStack(spacing: 8) {
+                row("Start workout", icon: "figure.run", tint: StrandPalette.effortColor) { onPick(.workout) }
+                row("Log journal", icon: "square.and.pencil", tint: StrandPalette.accent) { onPick(.journal) }
+                row("Breathe", icon: "wind", tint: StrandPalette.restColor) { onPick(.breathe) }
+            }
+            .padding(.horizontal, 16)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            StrandPalette.surfaceOverlay
+                .overlay(alignment: .top) {
+                    // Gold hairline top edge per the bottom-sheet spec.
+                    Rectangle()
+                        .fill(StrandPalette.gold.opacity(0.35))
+                        .frame(height: 1)
+                }
+                .ignoresSafeArea()
+        )
+        .preferredColorScheme(.dark)
+    }
+
+    /// One flat action row: hued line-icon tile + title, inset surface, hairline border.
+    private func row(_ title: LocalizedStringKey, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 13) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 38, height: 38)
+                    .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(StrandPalette.surfaceInset))
+                Text(title)
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(StrandPalette.surfaceRaised))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 #endif

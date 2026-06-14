@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,12 +29,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -107,8 +112,112 @@ fun HealthScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
                 onVitalClick = onVitalClick,
                 captionMode = VitalCaptionMode.AS_OF,
             )
+            // CONTRIBUTORS (README screen #5, recovery detail) — the signals behind recovery as
+            // labelled progress bars in the shared stage/zone bar style, mirroring Today's section.
+            Spacer(Modifier.height(Metrics.selectorTopUp))
+            HealthContributorsSection(today)
         }
     }
+}
+
+// MARK: - Contributors (README screen #5) — labelled progress bars on the health detail
+//
+// "CONTRIBUTORS" — the signals that drive recovery (HRV / Resting HR / Sleep / Respiratory), each as a
+// labelled progress bar in the shared stage/zone bar style (inset track, round-capped metric-hue fill,
+// right-aligned read-out). Per the Titanium & Gold recovery detail, HRV + Resting HR read on the gold
+// recovery world and Sleep + Respiratory on the blue sleep world. A SOLID/CALIBRATING pill states data
+// confidence. Fractions are presentation-only normalisations of today's row to typical adult spans —
+// no scoring change. Mirrors the Today RecoveryContributorsSection so the two screens read identically.
+
+@Composable
+private fun HealthContributorsSection(day: DailyMetric?) {
+    val hrv = day?.avgHrv
+    val rhr = day?.restingHr?.toDouble()
+    val sleepMin = day?.totalSleepMin
+    val resp = day?.respRateBpm
+    if (hrv == null && rhr == null && sleepMin == null && resp == null) return
+
+    // SOLID once recovery has been scored from these signals; CALIBRATING while the baseline seeds.
+    val solid = day?.recovery != null
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.weight(1f)) {
+                SectionHeader("Contributors", overline = "Recovery")
+            }
+            StatePill(
+                title = if (solid) "SOLID" else "CALIBRATING",
+                tone = if (solid) StrandTone.Accent else StrandTone.Neutral,
+            )
+        }
+        NoopCard {
+            Column(verticalArrangement = Arrangement.spacedBy(Metrics.space16)) {
+                ContributorBar(
+                    label = "HRV",
+                    readout = hrv?.let { "${it.roundToInt()} ms" } ?: "—",
+                    fraction = hrv?.let { (it - 20.0) / 100.0 },
+                    color = Palette.gold,
+                )
+                ContributorBar(
+                    label = "Resting HR",
+                    readout = rhr?.let { "${it.roundToInt()} bpm" } ?: "—",
+                    fraction = rhr?.let { 1.0 - ((it - 40.0) / 40.0) },
+                    color = Palette.goldDeep,
+                )
+                ContributorBar(
+                    label = "Sleep",
+                    readout = sleepMin?.let { sleepHoursText(it) } ?: "—",
+                    fraction = sleepMin?.let { (it / 60.0) / 8.0 },
+                    color = Palette.sleepLight,
+                )
+                ContributorBar(
+                    label = "Respiratory",
+                    readout = resp?.let { String.format(Locale.US, "%.1f rpm", it) } ?: "—",
+                    fraction = resp?.let { 1.0 - ((it - 12.0) / 8.0) },
+                    color = Palette.sleepDeep,
+                )
+                Text(
+                    "Baselines learned on-device over 14 days. Bars read each signal against a " +
+                        "typical adult range — approximate, not medical advice.",
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                )
+            }
+        }
+    }
+}
+
+/** "Hh Mm" for sleep minutes, matching the Today Rest read-out. */
+private fun sleepHoursText(totalMin: Double): String {
+    val t = totalMin.roundToInt()
+    return "${t / 60}h ${t % 60}m"
+}
+
+/** One labelled contributor bar in the shared stage/zone-bar style: a label + right-aligned read-out
+ *  over an inset track with a round-capped metric-hue fill. A null fraction renders an empty track. */
+@Composable
+private fun ContributorBar(label: String, readout: String, fraction: Double?, color: Color) {
+    val fillFrac = fraction?.coerceIn(0.0, 1.0)?.toFloat() ?: 0f
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.space6)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Overline(label, modifier = Modifier.weight(1f))
+            Text(readout, style = NoopType.captionNumber, color = Palette.textPrimary)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Metrics.progressHeight)
+                .clip(RoundedCornerShape(Metrics.cornerPill))
+                .background(Palette.surfaceInset)
+                .semantics { contentDescription = "$label $readout" }
+                .drawBehind { if (fillFrac > 0f) drawContributorFill(color, fillFrac) },
+        )
+    }
+}
+
+private fun DrawScope.drawContributorFill(color: Color, frac: Float) {
+    val w = (size.width * frac).coerceAtLeast(size.height)
+    val r = size.height / 2f
+    drawRoundRect(color = color, size = Size(w, size.height), cornerRadius = CornerRadius(r, r))
 }
 
 @Composable

@@ -1,11 +1,15 @@
 package com.noop.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,11 +20,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GridView
@@ -40,6 +46,8 @@ import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +72,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -181,6 +192,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
     val currentRoute = backStack?.destination?.route
     val current = Destination.forRoute(currentRoute)
     var showMoreSheet by remember { mutableStateOf(false) }
+    var showQuickActions by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -285,29 +297,59 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                 )
             },
             bottomBar = {
-                // One-thumb navigation for the four everyday screens. The drawer stays — same
-                // destinations, grouped — so nothing moved for existing users; the bar is additive.
-                NavigationBar(containerColor = Palette.surfaceRaised) {
-                    bottomTabs.forEach { dest ->
+                // One-thumb navigation for the four everyday screens plus a raised gold centre FAB
+                // for quick actions — mirroring the macOS/iOS tab bar. The drawer stays (same
+                // destinations, grouped) so nothing moved for existing users; the bar is additive.
+                Box(contentAlignment = Alignment.TopCenter) {
+                    NavigationBar(containerColor = Palette.surfaceRaised) {
+                        bottomTabs.forEach { dest ->
+                            NavigationBarItem(
+                                selected = current == dest,
+                                onClick = {
+                                    if (dest.route != currentRoute) nav.navigateTopLevel(dest.route)
+                                },
+                                icon = { Icon(dest.icon, contentDescription = dest.title) },
+                                label = { Text(dest.title, style = NoopType.footnote) },
+                                colors = navBarItemColors(),
+                            )
+                        }
                         NavigationBarItem(
-                            selected = current == dest,
-                            onClick = {
-                                if (dest.route != currentRoute) nav.navigateTopLevel(dest.route)
-                            },
-                            icon = { Icon(dest.icon, contentDescription = dest.title) },
-                            label = { Text(dest.title, style = NoopType.footnote) },
+                            // Lights up whenever the current screen ISN'T one of the four tabs, so the
+                            // bar never looks like you're nowhere.
+                            selected = bottomTabs.none { it == current },
+                            onClick = { showMoreSheet = true },
+                            icon = { Icon(Icons.Filled.GridView, contentDescription = "More screens") },
+                            label = { Text("More", style = NoopType.footnote) },
                             colors = navBarItemColors(),
                         )
                     }
-                    NavigationBarItem(
-                        // Lights up whenever the current screen ISN'T one of the four tabs, so the
-                        // bar never looks like you're nowhere.
-                        selected = bottomTabs.none { it == current },
-                        onClick = { showMoreSheet = true },
-                        icon = { Icon(Icons.Filled.GridView, contentDescription = "More screens") },
-                        label = { Text("More", style = NoopType.footnote) },
-                        colors = navBarItemColors(),
-                    )
+                    // Raised gold-gradient centre FAB, lifted ~20dp above the bar (spec: margin-top:-20px).
+                    // Opens a bottom sheet of quick actions routing to existing destinations.
+                    FloatingActionButton(
+                        onClick = { showQuickActions = true },
+                        containerColor = Color.Transparent,
+                        contentColor = Palette.goldDeepText,
+                        shape = CircleShape,
+                        // Flat — no Material drop shadow; the redesign keeps glow low (the gold
+                        // gradient alone reads as raised against the navy bar).
+                        elevation = FloatingActionButtonDefaults.elevation(
+                            defaultElevation = 0.dp,
+                            pressedElevation = 0.dp,
+                            focusedElevation = 0.dp,
+                            hoveredElevation = 0.dp,
+                        ),
+                        modifier = Modifier
+                            .offset(y = (-20).dp)
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(*Palette.goldGradient.toTypedArray())),
+                    ) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = "Quick actions",
+                            tint = Palette.goldDeepText,
+                        )
+                    }
                 }
             },
         ) { inner ->
@@ -430,15 +472,67 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                 }
             }
         }
+
+        // Quick-actions sheet, opened by the raised gold centre FAB. Each row routes to an
+        // existing destination — nothing new is built here, the FAB is just a faster door in.
+        if (showQuickActions) {
+            ModalBottomSheet(
+                onDismissRequest = { showQuickActions = false },
+                containerColor = Palette.surfaceRaised,
+                contentColor = Palette.textPrimary,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 24.dp),
+                ) {
+                    Overline(
+                        "Quick actions",
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 6.dp),
+                        color = Palette.textTertiary,
+                    )
+                    quickActions.forEach { action ->
+                        NavigationDrawerItem(
+                            selected = false,
+                            onClick = {
+                                showQuickActions = false
+                                if (action.route != currentRoute) {
+                                    nav.navigateTopLevel(action.route)
+                                }
+                            },
+                            icon = { Icon(action.icon, contentDescription = null) },
+                            label = { Text(action.title, style = NoopType.body) },
+                            colors = NavigationDrawerItemDefaults.colors(
+                                unselectedContainerColor = Palette.surfaceRaised,
+                                unselectedIconColor = Palette.accent,
+                                unselectedTextColor = Palette.textPrimary,
+                            ),
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
+
+/** A centre-FAB quick action: a display title, an icon and the destination route it opens. */
+private data class QuickAction(val title: String, val icon: ImageVector, val route: String)
+
+/** The three quick actions on the gold centre FAB, each routing to an existing destination. */
+private val quickActions: List<QuickAction> = listOf(
+    QuickAction("Start workout", Icons.Filled.FitnessCenter, Destination.Workouts.route),
+    QuickAction("Log journal", Icons.Filled.Edit, Destination.Insights.route),
+    QuickAction("Breathe", Icons.Filled.Air, Destination.Breathe.route),
+)
 
 /** Bottom-bar item colours, matching the drawer's accent-on-raised selection treatment. */
 @Composable
 private fun navBarItemColors() = NavigationBarItemDefaults.colors(
     selectedIconColor = Palette.accent,
     selectedTextColor = Palette.textPrimary,
-    indicatorColor = androidx.compose.ui.graphics.Color.Transparent, // no gold pill behind the selected tab — just the gold icon
+    indicatorColor = Color.Transparent, // no gold pill behind the selected tab — just the gold icon
 
     unselectedIconColor = Palette.textSecondary,
     unselectedTextColor = Palette.textSecondary,

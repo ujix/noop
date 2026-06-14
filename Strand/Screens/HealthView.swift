@@ -41,6 +41,10 @@ struct HealthView: View {
                     // so the ~1Hz HR stream re-renders only this subtree — the static
                     // vitals grid below does not re-render on each HR tick.
                     HeartRateSection()
+                    // Screen-5 recovery detail: the CONTRIBUTORS to today's recovery as
+                    // labelled progress bars (HRV / Resting HR / Sleep / Respiratory), each
+                    // scored against the on-device baseline. Depends only on `repo`.
+                    RecoveryContributorsSection()
                     // The static vitals grid is its own view depending only on `repo`,
                     // so it is unaffected by live HR ticks.
                     VitalsSection()
@@ -291,6 +295,188 @@ private struct LiveTimeChart: View {
             }
         }
         .clipped()
+    }
+}
+
+// MARK: - Recovery contributors (screen-5: labelled progress bars)
+
+/// The README "Recovery detail · CONTRIBUTORS" section: the inputs to today's recovery
+/// (HRV, Resting HR, Sleep, Respiratory) as labelled zone/stage progress bars, each scored
+/// 0–100 against the user's on-device baseline. Depends only on `repo`, so the ~1Hz live HR
+/// stream never re-renders it. Presentation-only — every value reads off the latest
+/// `DailyMetric` and the baseline mean of prior nights; nothing here changes data or scoring.
+private struct RecoveryContributorsSection: View {
+    @EnvironmentObject var repo: Repository
+
+    /// One contributor row's resolved read-out: its 0–100 strength, the qualitative word,
+    /// the metric hue, and the right-aligned raw value.
+    private struct Contributor {
+        let label: LocalizedStringKey
+        let strength: Double?      // 0…100, nil while calibrating / no value
+        let word: String
+        let detail: String         // right-aligned raw reading ("64 ms")
+        let tint: Color
+    }
+
+    var body: some View {
+        let latest = repo.days.last
+        // A contributor needs at least the recovery seed depth of prior nights to score against
+        // a baseline; below that we show CALIBRATING and leave the bars unfilled but honest.
+        let priorCount = repo.days.dropLast().compactMap(\.avgHrv).filter { $0 > 0 }.count
+        let ready = priorCount >= Baselines.minNightsSeed
+        let contributors = buildContributors(latest)
+
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                SectionHeader("Contributors", overline: "Recovery", trailing: nil)
+                if ready {
+                    ScoreStatePill(.solid)
+                } else {
+                    ScoreStatePill(.calibrating, text: "Calibrating — \(priorCount) of \(Baselines.minNightsSeed)")
+                }
+            }
+            NoopCard(tint: StrandPalette.chargeColor) {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(Array(contributors.enumerated()), id: \.offset) { _, c in
+                        ContributorBar(label: c.label, strength: ready ? c.strength : nil,
+                                       word: ready ? c.word : "Calibrating",
+                                       detail: c.detail, tint: c.tint)
+                    }
+                }
+            }
+            Text("Baselines are learned on-device over your first 14 days — until then, typical ranges apply.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Resolve each contributor from the latest day against the baseline mean of prior nights.
+    /// HRV and Sleep score higher when above baseline; Resting HR and Respiratory score higher
+    /// when at/below baseline (lower is better). Strength is a centred 0–100 (baseline ≈ 70).
+    private func buildContributors(_ latest: DailyMetric?) -> [Contributor] {
+        let hrvBase  = baseline { $0.avgHrv }
+        let rhrBase  = baseline { $0.restingHr.map(Double.init) }
+        let sleepBase = baseline { $0.totalSleepMin }
+        let respBase = baseline { $0.respRateBpm }
+
+        return [
+            Contributor(
+                label: "HRV",
+                strength: higherIsBetter(latest?.avgHrv, base: hrvBase),
+                word: word(higherIsBetter(latest?.avgHrv, base: hrvBase)),
+                detail: latest?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—",
+                tint: StrandPalette.metricCyan),       // HRV = teal
+            Contributor(
+                label: "Resting HR",
+                strength: lowerIsBetter(latest?.restingHr.map(Double.init), base: rhrBase),
+                word: word(lowerIsBetter(latest?.restingHr.map(Double.init), base: rhrBase)),
+                detail: latest?.restingHr.map { "\($0) bpm" } ?? "—",
+                tint: StrandPalette.gold),             // recovery contributor = gold
+            Contributor(
+                label: "Sleep",
+                strength: higherIsBetter(latest?.totalSleepMin, base: sleepBase),
+                word: word(higherIsBetter(latest?.totalSleepMin, base: sleepBase)),
+                detail: latest?.totalSleepMin.map { sleepText($0) } ?? "—",
+                tint: StrandPalette.sleepLight),       // sleep = blue
+            Contributor(
+                label: "Respiratory",
+                strength: lowerIsBetter(latest?.respRateBpm, base: respBase),
+                word: word(lowerIsBetter(latest?.respRateBpm, base: respBase)),
+                detail: latest?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—",
+                tint: StrandPalette.sleepLight),       // respiratory shares the blue world
+        ]
+    }
+
+    /// Mean of a per-day column across prior nights (excludes the latest day so "vs baseline"
+    /// compares the latest reading against history). nil until enough nights exist.
+    private func baseline(_ key: (DailyMetric) -> Double?) -> Double? {
+        let prior = repo.days.dropLast().compactMap(key).filter { $0 > 0 }
+        guard prior.count >= Baselines.minNightsSeed else { return nil }
+        return prior.reduce(0, +) / Double(prior.count)
+    }
+
+    /// Centre a "higher is better" reading on a 0…100 strength: at baseline → 70, scaling up to
+    /// 100 by ~+30% above and down to 0 by ~-40% below. nil inputs return nil (no bar fill).
+    private func higherIsBetter(_ value: Double?, base: Double?) -> Double? {
+        guard let value, let base, base > 0 else { return nil }
+        let ratio = value / base
+        return clampStrength(70 + (ratio - 1) * 100)
+    }
+    /// Centre a "lower is better" reading (RHR, respiratory) — at baseline → 70, better as it falls.
+    private func lowerIsBetter(_ value: Double?, base: Double?) -> Double? {
+        guard let value, let base, base > 0 else { return nil }
+        let ratio = value / base
+        return clampStrength(70 - (ratio - 1) * 200)
+    }
+    private func clampStrength(_ v: Double) -> Double { min(100, max(0, v)) }
+
+    /// The qualitative word under the bar's right edge — banded like the contributor strengths.
+    private func word(_ strength: Double?) -> String {
+        guard let s = strength else { return "—" }
+        switch s {
+        case ..<40:  return "Low"
+        case ..<60:  return "Fair"
+        case ..<78:  return "Good"
+        default:     return "Strong"
+        }
+    }
+
+    private func sleepText(_ minutes: Double) -> String {
+        let m = max(0, Int(minutes.rounded()))
+        return "\(m / 60)h \(m % 60)m"
+    }
+}
+
+/// One README "zone / stage bar": a label + qualitative word on top, a rounded track
+/// (`surfaceInset`, ~9pt tall, radius 5) with a metric-hue fill scaled to 0…100 strength, and a
+/// right-aligned raw reading. Animates the fill in on appear. Used for the recovery contributors.
+private struct ContributorBar: View {
+    let label: LocalizedStringKey
+    /// 0…100 strength; nil renders an empty (calibrating) track.
+    let strength: Double?
+    let word: String
+    let detail: String
+    let tint: Color
+
+    @State private var drawn: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var fraction: Double { min(1, max(0, (strength ?? 0) / 100)) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label).strandOverline()
+                Text("· \(word)")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(strength == nil ? StrandPalette.textTertiary : tint)
+                Spacer()
+                Text(detail)
+                    .font(StrandFont.captionNumber)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(StrandPalette.surfaceInset)
+                    Capsule(style: .continuous)
+                        .fill(tint)
+                        .frame(width: geo.size.width * CGFloat(drawn))
+                }
+            }
+            .frame(height: 9)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(detail), \(word)")
+        .onAppear {
+            if reduceMotion { drawn = fraction }
+            else { withAnimation(.easeOut(duration: 0.9)) { drawn = fraction } }
+        }
+        .onChange(of: strength) { _ in
+            if reduceMotion { drawn = fraction }
+            else { withAnimation(.easeOut(duration: 0.6)) { drawn = fraction } }
+        }
     }
 }
 

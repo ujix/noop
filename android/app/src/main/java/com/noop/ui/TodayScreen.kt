@@ -24,11 +24,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Battery5Bar
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Tune
@@ -56,11 +58,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -338,9 +343,9 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
 
         if (alert != null) IllnessBanner(alert!!)
 
-        // HERO — three Charge / Effort / Rest ring scores over a scenic backdrop, then the
-        // green-tinted Synthesis coaching card. Bevel layout. The support affordance stays in
-        // the section header.
+        // HERO — the big gold RecoveryRing + metric rows + gold Synthesis card (RecoveryHeroSection),
+        // then the three Charge / Effort / Rest ring gauges over a scenic backdrop. The support
+        // affordance stays in the section header.
         Row(verticalAlignment = Alignment.Top) {
             Box(modifier = Modifier.weight(1f)) {
                 SectionHeader(synthesisTitle, overline = "At a glance", trailing = greetingWord())
@@ -358,6 +363,15 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
             }
         }
 
+        // RECOVERY HERO (README screen #4) — the signature big gold RecoveryRing with its micro NOOP
+        // wordmark + RECOVERY state label, a SOLID/CALIBRATING data-confidence pill, the HRV / Resting
+        // HR / Respiratory metric rows, and a gold Synthesis insight card. Mirrors the Titanium & Gold
+        // Today hero; the three-up Charge/Effort/Rest gauges follow it for the full at-a-glance read.
+        RecoveryHeroSection(
+            day = displayMetric,
+            recoveryCalibration = recoveryCalibration,
+        )
+
         // The three daily scores as layered ring gauges over a scenic Charge-tinted backdrop.
         ScoreHeroRow(
             day = displayMetric,
@@ -367,19 +381,10 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
             onScoreInfo = openGuide,
         )
 
-        // The plain-English read-out — a green-tinted Synthesis coaching card under the rings.
-        InsightCard(
-            modifier = Modifier.fillMaxWidth(),
-            category = "Synthesis",
-            status = if (recoveryCalibration != null) "Calibrating" else synthesisWord(displayMetric?.recovery),
-            detail = if (recoveryCalibration != null) {
-                "Learning your baseline — $recoveryCalibration of ${Baselines.minNightsSeed} nights."
-            } else {
-                synthesisDetail(displayMetric)
-            },
-            statusColor = displayMetric?.recovery?.let { Palette.recoveryColor(it) } ?: Palette.textTertiary,
-            tint = Palette.chargeColor,
-        )
+        // CONTRIBUTORS (README screen #5, recovery detail) — what drove today's Charge, as labelled
+        // progress bars (HRV / Resting HR / Sleep / Respiratory) in the shared stage/zone bar style.
+        // (The plain-English Synthesis insight card is rendered by RecoveryHeroSection, above.)
+        RecoveryContributorsSection(day = displayMetric)
 
         // READINESS — on-device training-readiness synthesis (HRV / resting-HR / load).
         // Mirrors the macOS readinessSection: rendered only once there's enough history.
@@ -685,6 +690,230 @@ private fun RingEmptyOverlay(calibratingNights: Int?) {
 @Composable
 private fun RingNoData() {
     Text(NO_DATA, style = NoopType.headline, color = Palette.textTertiary, maxLines = 1)
+}
+
+// MARK: - Recovery hero (README screen #4) — big gold RecoveryRing + metric rows + gold insight
+//
+// The signature Titanium & Gold Today hero: a SOLID/CALIBRATING data-confidence pill, a large gold
+// [RecoveryRing] (whose centre already carries the micro "NOOP" wordmark, the score and the RECOVERY
+// state label + a solid gold core dot), the HRV / Resting HR / Respiratory metric-row card, then a
+// gold Synthesis [InsightCard]. Floats over a Charge-tinted scenic backdrop, matching the macOS hero.
+// Presentation-only: reads the already-resolved [day]; recovery null → CALIBRATING / No-data overlay.
+
+@Composable
+private fun RecoveryHeroSection(
+    day: DailyMetric?,
+    recoveryCalibration: Int?,
+) {
+    val recovery = day?.recovery
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Metrics.cardRadius)),
+    ) {
+        ScenicHeroBackground(modifier = Modifier.matchParentSize(), domain = DomainTheme.Charge)
+        NoopCard(tint = Palette.chargeColor, padding = Metrics.space18) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(Metrics.space16),
+            ) {
+                // Data-confidence pill: SOLID once a score exists, CALIBRATING while the baseline seeds.
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Overline("Recovery", modifier = Modifier.weight(1f), color = Palette.gold)
+                    StatePill(
+                        title = if (recovery != null) "SOLID" else "CALIBRATING",
+                        tone = if (recovery != null) StrandTone.Accent else StrandTone.Neutral,
+                    )
+                }
+
+                // The big gold brand ring. The centre read-out (NOOP wordmark · number · RECOVERY)
+                // is owned by RecoveryRing; an honest overlay stands in while recovery is null.
+                Box(contentAlignment = Alignment.Center) {
+                    RecoveryRing(
+                        score = recovery ?: 0.0,
+                        diameter = 200.dp,
+                        lineWidth = 14.dp,
+                        showsLabel = recovery != null,
+                    )
+                    if (recovery == null) RingEmptyOverlay(recoveryCalibration)
+                }
+
+                // Metric-row card (README "Metric row"): left hue-line icon, label, right bold value
+                // + small unit, rows divided by hairlines. The three Today vitals from the day's row.
+                HeroMetricRows(day = day)
+            }
+        }
+    }
+
+    // Gold Synthesis insight card — the plain-English read-out under the hero. Calibrating → soft copy.
+    InsightCard(
+        modifier = Modifier.fillMaxWidth(),
+        category = "Synthesis",
+        status = if (recoveryCalibration != null) "Calibrating" else synthesisWord(recovery),
+        detail = if (recoveryCalibration != null) {
+            "Learning your baseline — $recoveryCalibration of ${Baselines.minNightsSeed} nights."
+        } else {
+            synthesisDetail(day)
+        },
+        statusColor = recovery?.let { Palette.recoveryColor(it) } ?: Palette.textTertiary,
+        tint = Palette.gold,
+    )
+}
+
+/** The three hero vitals as README metric rows — HRV (teal) · Resting HR (rose) · Respiratory (blue). */
+@Composable
+private fun HeroMetricRows(day: DailyMetric?) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Palette.surfaceInset.copy(alpha = 0.55f)),
+    ) {
+        HeroMetricRow(
+            icon = Icons.Filled.Favorite,
+            label = "HRV",
+            value = day?.avgHrv?.let { it.roundToInt().toString() } ?: NO_DATA,
+            unit = "ms",
+            hue = Palette.metricCyan,
+        )
+        HeroMetricDivider()
+        HeroMetricRow(
+            icon = Icons.Filled.MonitorHeart,
+            label = "Resting HR",
+            value = day?.restingHr?.toString() ?: NO_DATA,
+            unit = "bpm",
+            hue = Palette.metricRose,
+        )
+        HeroMetricDivider()
+        HeroMetricRow(
+            icon = Icons.Filled.Air,
+            label = "Respiratory",
+            value = day?.respRateBpm?.let { String.format(Locale.US, "%.1f", it) } ?: NO_DATA,
+            unit = "rpm",
+            hue = Palette.sleepLight,
+        )
+    }
+}
+
+@Composable
+private fun HeroMetricRow(icon: ImageVector, label: String, value: String, unit: String, hue: Color) {
+    val hasValue = value != NO_DATA
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Metrics.space14, vertical = Metrics.space12)
+            .semantics { contentDescription = "$label $value $unit" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = hue, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(Metrics.space12))
+        Text(label, style = NoopType.subhead, color = Palette.textSecondary, modifier = Modifier.weight(1f))
+        Text(
+            value,
+            style = NoopType.bodyNumber,
+            color = if (hasValue) Palette.textPrimary else Palette.textTertiary,
+        )
+        if (hasValue) {
+            Spacer(Modifier.width(Metrics.space4))
+            Text(unit, style = NoopType.footnote, color = Palette.textTertiary)
+        }
+    }
+}
+
+@Composable
+private fun HeroMetricDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(Metrics.divider)
+            .background(Palette.hairline.copy(alpha = 0.5f)),
+    )
+}
+
+// MARK: - Recovery contributors (README screen #5) — labelled progress bars
+//
+// "CONTRIBUTORS" — what drove today's Charge, each as a labelled progress bar in the shared stage/zone
+// bar style (inset track, round-capped metric-hue fill, right-aligned read-out). Per the README recovery
+// detail: HRV and Resting HR read on the gold recovery world, Sleep and Respiratory on the blue sleep
+// world. Each bar's fraction is a presentation-only normalisation of the day's value to a typical adult
+// span — no scoring/logic change. Suppressed entirely until at least one contributor has a value.
+
+@Composable
+private fun RecoveryContributorsSection(day: DailyMetric?) {
+    val hrv = day?.avgHrv
+    val rhr = day?.restingHr?.toDouble()
+    val sleepMin = day?.totalSleepMin
+    val resp = day?.respRateBpm
+    if (hrv == null && rhr == null && sleepMin == null && resp == null) return
+
+    SectionHeader("Contributors", overline = "Recovery", trailing = "What drove Charge")
+    NoopCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Metrics.space16)) {
+            // HRV — higher is better; map a typical 20–120 ms span. Gold (recovery world).
+            ContributorBar(
+                label = "HRV",
+                readout = hrv?.let { "${it.roundToInt()} ms" } ?: NO_DATA,
+                fraction = hrv?.let { ((it - 20.0) / 100.0) },
+                color = Palette.gold,
+            )
+            // Resting HR — lower is better, so invert a typical 40–80 bpm span. Gold (recovery world).
+            ContributorBar(
+                label = "Resting HR",
+                readout = rhr?.let { "${it.roundToInt()} bpm" } ?: NO_DATA,
+                fraction = rhr?.let { 1.0 - ((it - 40.0) / 40.0) },
+                color = Palette.goldDeep,
+            )
+            // Sleep — hours in bed against an 8h target. Blue (sleep world).
+            ContributorBar(
+                label = "Sleep",
+                readout = sleepMin?.let { sleepValue(day) } ?: NO_DATA,
+                fraction = sleepMin?.let { (it / 60.0) / 8.0 },
+                color = Palette.sleepLight,
+            )
+            // Respiratory — stability around a typical 12–20 rpm span. Deep blue (sleep world).
+            ContributorBar(
+                label = "Respiratory",
+                readout = resp?.let { String.format(Locale.US, "%.1f rpm", it) } ?: NO_DATA,
+                fraction = resp?.let { 1.0 - ((it - 12.0) / 8.0) },
+                color = Palette.sleepDeep,
+            )
+            Text(
+                "Baselines learned on-device over 14 days. Bars are an approximate read of each " +
+                    "signal against a typical adult range — not medical advice.",
+                style = NoopType.footnote,
+                color = Palette.textTertiary,
+            )
+        }
+    }
+}
+
+/** One labelled contributor bar in the shared stage/zone-bar style: a label + right-aligned read-out
+ *  over an inset track with a round-capped metric-hue fill. A null fraction renders an empty track. */
+@Composable
+private fun ContributorBar(label: String, readout: String, fraction: Double?, color: Color) {
+    val fillFrac = fraction?.coerceIn(0.0, 1.0)?.toFloat() ?: 0f
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.space6)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Overline(label, modifier = Modifier.weight(1f))
+            Text(readout, style = NoopType.captionNumber, color = Palette.textPrimary)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Metrics.progressHeight)
+                .clip(RoundedCornerShape(Metrics.cornerPill))
+                .background(Palette.surfaceInset)
+                .semantics { contentDescription = "$label $readout" }
+                .drawBehind { if (fillFrac > 0f) drawContributorFill(color, fillFrac) },
+        )
+    }
+}
+
+private fun DrawScope.drawContributorFill(color: Color, frac: Float) {
+    val w = (size.width * frac).coerceAtLeast(size.height)
+    val r = size.height / 2f
+    drawRoundRect(color = color, size = Size(w, size.height), cornerRadius = CornerRadius(r, r))
 }
 
 /**

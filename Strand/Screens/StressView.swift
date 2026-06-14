@@ -145,7 +145,7 @@ struct StressView: View {
             NoopCard(tint: StrandPalette.stressColor) {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
-                        Text("Stress through the day").strandOverline()
+                        Text("Autonomic load through the day").strandOverline()
                         Spacer()
                         if let peak = day.peak, let lvl = peak.level {
                             Text("peak \(String(format: "%.1f", lvl)) · \(hourLabel(peak.hour))")
@@ -154,9 +154,11 @@ struct StressView: View {
                         }
                     }
 
-                    DaytimeStressStrip(hours: day.hours)
+                    // README screen-9: the day autonomic-load LINE, drawn with the same
+                    // 3-stop blue→gold→orange gradient as the gauge.
+                    DaytimeLoadLine(hours: day.hours)
 
-                    // Hour ruler under the strip (first / midday / last covered hour).
+                    // Hour ruler under the line (first / midday / last covered hour).
                     if let lo = day.hours.first?.hour, let hi = day.hours.last?.hour {
                         HStack {
                             Text(hourLabel(lo)).font(StrandFont.footnote)
@@ -170,7 +172,13 @@ struct StressView: View {
                         }
                     }
 
-                    Text("Each bar is one waking hour, scored against your own calm hours today — the same 0–3 proxy as the score above, read hour by hour. Hours without enough data are left blank.")
+                    Divider().overlay(StrandPalette.hairline)
+
+                    // README screen-9: the Calm / Moderate / High totals bar — one stacked
+                    // bar split by how many waking hours sat in each band, with durations.
+                    StressTotalsBar(totals: StressTotals(hours: day.hours))
+
+                    Text("The line is each waking hour's 0–3 proxy, scored against your own calm hours today. The bar below splits your day into calm, moderate and high stress time.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -227,28 +235,29 @@ struct StressView: View {
         return "\(h12) \(ampm)"
     }
 
-    // MARK: 1 · Hero — layered Bevel gauge in the teal Stress world over a scenic hero.
+    // MARK: 1 · Hero — the README screen-9 SEMICIRCLE gauge on a clean frosted card.
+    //
+    // A flat 180° Material gauge (surfaceInset track + the 3-stop blue→gold→orange
+    // stressGradient value arc, round caps) with a needle/marker at the value and a
+    // centred big number + state word in gold. No scenic starfield / bloom — Aaron
+    // asked for less glow, so the hero reads clean and flat over the frosted card.
 
     private func heroCard(_ model: StressModel) -> some View {
-        ZStack {
-            ScenicHeroBackground(domain: .stress)
-                .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-            NoopCard(tint: StrandPalette.stressColor) {
-                VStack(spacing: 14) {
-                    HStack {
-                        Text("Stress monitor").strandOverline()
-                        Spacer()
-                        StatePill("\(model.band.title)", tone: model.band.tone, showsDot: true)
-                    }
-                    StressHeroGauge(score: model.score, band: model.band)
-                        .frame(maxWidth: .infinity)
-                    // One plain-English line, full width under the gauge.
-                    Text(model.explanation)
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
+        NoopCard(tint: StrandPalette.stressColor) {
+            VStack(spacing: 14) {
+                HStack {
+                    Text("Stress monitor").strandOverline()
+                    Spacer()
+                    StatePill("\(model.band.title)", tone: model.band.tone, showsDot: true)
                 }
+                StressHeroGauge(score: model.score, band: model.band)
+                    .frame(maxWidth: .infinity)
+                // One plain-English line, full width under the gauge.
+                Text(model.explanation)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -451,23 +460,31 @@ enum StressBand {
     }
 }
 
-// MARK: - Stress ramp (its own scale: calm blue → balanced mint → tense amber)
+// MARK: - Stress ramp (the canonical Titanium & Gold Stress world: blue → gold → orange)
 //
-// Deliberately distinct from the recovery ramp — low stress reads cool/blue,
-// rising stress warms toward amber. Never the red→green recovery traffic light.
+// The Stress screen's one ramp, read straight off the design token `stressGradient`
+// (calm blue `#4A90E2` → balanced gold `#E8B84B` → high burnt-orange `#E0662F`). The
+// semicircle gauge fill, the day autonomic-load line, the Calm/Moderate/High totals bar
+// and the trend all sample this SAME ramp, so the colour language is identical across
+// the screen and matches the per-domain Stress world. Never the red→green recovery ramp.
 
 enum StressRamp {
-    static let calm    = Color(hex: "#4FA9C9") // cool blue — low
-    static let steady  = Color(hex: "#5BD3A0") // mint — balanced
-    static let tense   = Color(hex: "#E8C24B") // amber — high
+    /// Band anchors, lifted from the shared palette (no hard-coded hex). These are the
+    /// blue / gold / orange the totals legend and band dots use, kept in lock-step with
+    /// the gauge gradient below.
+    static let calm    = StrandPalette.sleepLight     // #4A90E2 — calm blue
+    static let steady  = StrandPalette.gold           // #E8B84B — balanced gold
+    static let tense   = StrandPalette.statusCritical // #E0662F — high burnt-orange
 
+    /// The 3-stop gauge ramp, evenly spaced (blue → gold → orange).
     static let stops: [Gradient.Stop] = [
         .init(color: calm,   location: 0.00),
         .init(color: steady, location: 0.50),
         .init(color: tense,  location: 1.00),
     ]
 
-    static let gradient = Gradient(stops: stops)
+    /// The shared design token (same colours) — used directly for arc / line fills.
+    static let gradient = StrandPalette.stressGradient
 
     /// Sample the ramp at a 0–3 stress score.
     static func color(_ score: Double) -> Color {
@@ -678,34 +695,71 @@ enum StressMath {
     }
 }
 
-// MARK: - Stress hero gauge — the canonical layered BevelGauge in the teal Stress world
+// MARK: - Stress hero gauge — the README screen-9 SEMICIRCLE gauge
 //
-// Bevel treatment: the 0–3 score reads as a layered ring gauge in the Stress teal colour
-// world (deep→bright teal stroke, stressColor glow/end-cap), sitting over the scenic hero.
-// The number is the 0–3 value, "of 3" is the caption, and the band (LOW/MEDIUM/HIGH) is the
-// state word — same data the bowl gauge showed, restyled to match Today's rings.
+// A flat 180° Material gauge: a `surfaceInset` track sweeps left→right across the top
+// half, the value arc is filled with the 3-stop `stressGradient` (calm blue → balanced
+// gold → high burnt-orange) with round caps, and a slim needle/marker points to the
+// value. The centre carries the big 0–3 number, an "of 3" caption and the band state
+// word (LOW/MEDIUM/HIGH) in gold. Clean and flat — no bloom/glow.
 
 struct StressHeroGauge: View {
     let score: Double          // 0–3
     let band: StressBand
-    var diameter: CGFloat = 220
+    var diameter: CGFloat = 230
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var animatedFraction: Double = 0
 
     private var fraction: Double { min(max(score / 3.0, 0), 1) }
+    private var lineWidth: CGFloat { diameter * 0.085 }
 
     var body: some View {
-        BevelGauge(
-            fraction: fraction,
-            stops: DomainTheme.stress.gradient.stops,
-            tipColor: StrandPalette.stressColor,
-            numberText: String(format: "%.1f", score),
-            captionText: "of 3",
-            stateText: band.title,
-            diameter: diameter,
-            animatedFraction: animatedFraction
-        )
+        // A `diameter`-wide gauge whose radius is bound by the WIDTH (so the round caps
+        // never clip horizontally). The semicircle's hub sits at the bottom of the drawing
+        // area; the read-out is centred inside the bowl, just above the hub. The frame is
+        // `width/2 + lineWidth` tall — the full top-half plus a hair for the round caps.
+        let gaugeHeight = diameter / 2 + lineWidth
+        ZStack {
+            Semicircle(track: true, lineWidth: lineWidth)
+                .stroke(StrandPalette.surfaceInset,
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+
+            // Value arc — the 3-stop stress ramp, swept along the 180° span so the colour
+            // under the tip matches the value's band (blue calm → gold → orange high).
+            Semicircle(track: false, fraction: animatedFraction, lineWidth: lineWidth)
+                .stroke(
+                    AngularGradient(
+                        gradient: StressRamp.gradient,
+                        center: .init(x: 0.5, y: 1.0),   // arc centre = bottom-middle
+                        startAngle: .degrees(180), endAngle: .degrees(360)
+                    ),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+
+            // Needle / marker at the value — a slim gold pointer from the hub to the arc.
+            StressNeedle(fraction: animatedFraction, lineWidth: lineWidth)
+
+            // Centred read-out: big number + "of 3" + state word in gold. Sits inside the
+            // bowl, biased toward the hub so it never collides with the top of the arc.
+            VStack(spacing: 1) {
+                Text(String(format: "%.1f", score))
+                    .font(StrandFont.rounded(diameter * 0.22, weight: .bold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .contentTransition(.numericText())
+                Text("of 3")
+                    .font(StrandFont.rounded(diameter * 0.062, weight: .medium))
+                    .foregroundStyle(StrandPalette.textTertiary)
+                Text(band.title)
+                    .font(StrandFont.overline)
+                    .tracking(StrandFont.overlineTracking)
+                    .foregroundStyle(StrandPalette.gold)
+                    .padding(.top, 1)
+            }
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, lineWidth * 0.6)
+        }
+        .frame(width: diameter, height: gaugeHeight)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Stress \(String(format: "%.1f", score)) of 3, \(band.title)")
@@ -715,53 +769,313 @@ struct StressHeroGauge: View {
     }
 }
 
-// MARK: - Daytime stress strip (one bar per waking hour)
+// MARK: - Semicircle arc shape (180°, left→right across the top)
 //
-// A compact intraday strip: each waking hour is a rounded bar whose HEIGHT and COLOR
-// track its 0–3 stress proxy on the shared StressRamp. Hours with no signal render as a
-// faint baseline tick (honest gap), never a guessed value.
+// A half-ring whose hub is the bottom-middle of its rect. `track == true` draws the full
+// 180° span; otherwise it draws `fraction` of it (animatable), so the same shape backs
+// both the inset track and the gradient value arc with round caps.
 
-struct DaytimeStressStrip: View {
-    let hours: [DaytimeStress.HourPoint]
+struct Semicircle: Shape {
+    var track: Bool = false
+    var fraction: Double = 1
+    var lineWidth: CGFloat
 
-    private let barHeight: CGFloat = 64
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        // Hub at bottom-middle; radius leaves room for the stroke width.
+        let center = CGPoint(x: rect.midX, y: rect.maxY)
+        let radius = min(rect.width / 2, rect.height) - lineWidth / 2
+        let span = track ? 1.0 : min(max(fraction, 0), 1)
+        let start = Angle.degrees(180)                       // 9 o'clock (left)
+        let end = Angle.degrees(180 + 180 * span)            // sweeps over the top to 3 o'clock
+        var path = Path()
+        path.addArc(center: center, radius: radius,
+                    startAngle: start, endAngle: end, clockwise: false)
+        return path
+    }
+}
+
+// MARK: - Stress needle — a slim gold marker at the value
+//
+// A thin gold pointer from the gauge hub out to (just short of) the value arc, capped
+// with a small hub dot. Honours the gauge's animated fill so it sweeps in with the arc.
+
+struct StressNeedle: View {
+    var fraction: Double
+    var lineWidth: CGFloat
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 3) {
-            ForEach(hours, id: \.startTs) { point in
-                bar(for: point)
+        GeometryReader { geo in
+            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height)
+            let radius = min(geo.size.width / 2, geo.size.height) - lineWidth / 2
+            // Angle along the 180° span (π … 2π), measured from the hub.
+            let theta = Double.pi + Double.pi * min(max(fraction, 0), 1)
+            let tip = CGPoint(x: center.x + (radius - lineWidth * 0.55) * cos(theta),
+                              y: center.y + (radius - lineWidth * 0.55) * sin(theta))
+            ZStack {
+                Path { p in
+                    p.move(to: center)
+                    p.addLine(to: tip)
+                }
+                .stroke(StrandPalette.gold,
+                        style: StrokeStyle(lineWidth: max(2, lineWidth * 0.16), lineCap: .round))
+
+                // Hub knob.
+                Circle()
+                    .fill(StrandPalette.gold)
+                    .frame(width: lineWidth * 0.5, height: lineWidth * 0.5)
+                    .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 2))
+                    .position(center)
+
+                // Marker dot riding the arc at the value.
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: lineWidth * 0.42, height: lineWidth * 0.42)
+                    .overlay(Circle().fill(StressRamp.color(fraction * 3.0)).opacity(0.4))
+                    .position(tip)
             }
         }
-        .frame(height: barHeight)
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Daytime autonomic-load line (README screen-9)
+//
+// The day's intraday stress proxy drawn as a smooth LINE across the waking hours, filled
+// under the curve and stroked with the SAME 3-stop blue→gold→orange `stressGradient` as
+// the gauge. Only scored hours contribute points (no-data hours are skipped, never a
+// guessed value); the smooth line connects the ones we have. The y-axis is the 0–3 scale
+// and a faint dashed mid-line marks the 1.5 baseline.
+
+struct DaytimeLoadLine: View {
+    let hours: [DaytimeStress.HourPoint]
+
+    private let chartHeight: CGFloat = 78
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let n = max(hours.count, 1)
+            // x for an hour index; y maps a 0–3 level into the chart (0 at bottom).
+            // (closures, not `func` — a `@ViewBuilder` closure can't contain declarations)
+            let x: (Int) -> CGFloat = { i in n <= 1 ? w / 2 : w * CGFloat(i) / CGFloat(n - 1) }
+            let y: (Double) -> CGFloat = { level in h - h * CGFloat(min(max(level / 3.0, 0), 1)) }
+
+            let pts: [(CGFloat, CGFloat)] = hours.enumerated().compactMap { i, p in
+                p.level.map { (x(i), y($0)) }
+            }
+
+            ZStack {
+                // Baseline (1.5 of 3) reference line.
+                Path { p in
+                    let yb = y(1.5)
+                    p.move(to: CGPoint(x: 0, y: yb))
+                    p.addLine(to: CGPoint(x: w, y: yb))
+                }
+                .stroke(StrandPalette.hairline, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+                if pts.count >= 2 {
+                    // Soft area fill under the curve.
+                    areaPath(pts, width: w, height: h)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    StrandPalette.stressColor.opacity(0.22),
+                                    StrandPalette.stressColor.opacity(0.02),
+                                ]),
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                    // The gradient line itself (blue→gold→orange, left→right).
+                    linePath(pts)
+                        .stroke(
+                            LinearGradient(gradient: StressRamp.gradient,
+                                           startPoint: .leading, endPoint: .trailing),
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                        )
+                } else if let only = pts.first {
+                    // A single scored hour: a lone dot rather than a line.
+                    Circle()
+                        .fill(StressRamp.color(1.5))
+                        .frame(width: 6, height: 6)
+                        .position(x: only.0, y: only.1)
+                }
+            }
+        }
+        .frame(height: chartHeight)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
     }
 
-    @ViewBuilder
-    private func bar(for point: DaytimeStress.HourPoint) -> some View {
-        if let level = point.level {
-            // Map 0–3 onto a readable height; floor so even a calm hour is visible.
-            let frac = CGFloat(min(max(level / 3.0, 0), 1))
-            let h = max(6, barHeight * (0.18 + 0.82 * frac))
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(StressRamp.color(level))
-                .frame(height: h)
-                .frame(maxWidth: .infinity)
-        } else {
-            // No-data hour: a faint baseline tick so the day's shape stays honest.
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(StrandPalette.surfaceInset)
-                .frame(height: 6)
-                .frame(maxWidth: .infinity)
+    /// A smooth (Catmull-Rom-ish) stroke through the scored points.
+    private func linePath(_ pts: [(CGFloat, CGFloat)]) -> Path {
+        var path = Path()
+        guard let first = pts.first else { return path }
+        path.move(to: CGPoint(x: first.0, y: first.1))
+        for i in 1..<pts.count {
+            let prev = pts[i - 1]
+            let cur = pts[i]
+            let midX = (prev.0 + cur.0) / 2
+            path.addCurve(
+                to: CGPoint(x: cur.0, y: cur.1),
+                control1: CGPoint(x: midX, y: prev.1),
+                control2: CGPoint(x: midX, y: cur.1)
+            )
         }
+        return path
+    }
+
+    private func areaPath(_ pts: [(CGFloat, CGFloat)], width: CGFloat, height: CGFloat) -> Path {
+        var path = linePath(pts)
+        if let last = pts.last, let first = pts.first {
+            path.addLine(to: CGPoint(x: last.0, y: height))
+            path.addLine(to: CGPoint(x: first.0, y: height))
+            path.closeSubpath()
+        }
+        return path
     }
 
     private var accessibilitySummary: String {
         let scored = hours.compactMap { p in p.level.map { (p.hour, $0) } }
         guard !scored.isEmpty else { return "No intraday stress data yet today." }
         let parts = scored.map { "\($0.0):00 \(String(format: "%.1f", $0.1))" }
-        return "Hourly stress today: " + parts.joined(separator: ", ")
+        return "Autonomic load today: " + parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Stress totals (Calm / Moderate / High) split for the day
+
+/// Splits the day's SCORED waking hours into the three stress bands and exposes each
+/// band's share + duration. Each intraday bucket is one hour (`DaytimeStress.bucketSeconds`),
+/// so the band's hour-count is its duration. Calm = 0–1, Moderate = 1–2, High = 2–3.
+struct StressTotals {
+    let calmHours: Int
+    let moderateHours: Int
+    let highHours: Int
+
+    init(hours: [DaytimeStress.HourPoint]) {
+        var c = 0, m = 0, hi = 0
+        for p in hours {
+            guard let lvl = p.level else { continue }
+            switch StressBand(score: lvl) {
+            case .low:    c += 1
+            case .medium: m += 1
+            case .high:   hi += 1
+            }
+        }
+        calmHours = c; moderateHours = m; highHours = hi
+    }
+
+    var total: Int { calmHours + moderateHours + highHours }
+
+    /// 0...1 share of the scored day spent in each band (0 when no scored hours).
+    func fraction(_ band: StressBand) -> Double {
+        guard total > 0 else { return 0 }
+        switch band {
+        case .low:    return Double(calmHours) / Double(total)
+        case .medium: return Double(moderateHours) / Double(total)
+        case .high:   return Double(highHours) / Double(total)
+        }
+    }
+
+    func hours(_ band: StressBand) -> Int {
+        switch band {
+        case .low:    return calmHours
+        case .medium: return moderateHours
+        case .high:   return highHours
+        }
+    }
+}
+
+// MARK: - Stress totals bar (README screen-9)
+//
+// One stacked horizontal bar split Calm (blue) / Moderate (gold) / High (burnt-orange)
+// by how much of the scored day sat in each band, with a legend of durations below. Empty
+// segments collapse; an all-empty day shows a faint placeholder track.
+
+struct StressTotalsBar: View {
+    let totals: StressTotals
+
+    private let barHeight: CGFloat = 12
+
+    private struct Band: Identifiable {
+        let id = UUID()
+        let band: StressBand
+        let label: String
+        let color: Color
+    }
+
+    private var bands: [Band] {
+        [
+            Band(band: .low,    label: "Calm",     color: StressRamp.calm),
+            Band(band: .medium, label: "Moderate", color: StressRamp.steady),
+            Band(band: .high,   label: "High",     color: StressRamp.tense),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // The split bar.
+            GeometryReader { geo in
+                let w = geo.size.width
+                // Visible segments share the gaps between them, so subtract those from the
+                // width pool before splitting proportionally — the segments always sum to ≤ w.
+                let visible = bands.filter { totals.fraction($0.band) > 0 }
+                let gaps = CGFloat(max(visible.count - 1, 0)) * 2
+                let usable = max(0, w - gaps)
+                HStack(spacing: totals.total > 0 ? 2 : 0) {
+                    if totals.total > 0 {
+                        ForEach(visible) { b in
+                            Capsule(style: .continuous)
+                                .fill(b.color)
+                                .frame(width: max(barHeight, usable * CGFloat(totals.fraction(b.band))))
+                        }
+                    } else {
+                        Capsule(style: .continuous)
+                            .fill(StrandPalette.surfaceInset)
+                            .frame(width: w)
+                    }
+                }
+                .frame(width: w, alignment: .leading)
+            }
+            .frame(height: barHeight)
+
+            // Legend: a dot, the band name, and its duration.
+            HStack(spacing: 0) {
+                ForEach(bands) { b in
+                    HStack(spacing: 7) {
+                        Circle().fill(b.color).frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(b.label)
+                                .font(StrandFont.captionNumber)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text(durationLabel(totals.hours(b.band)))
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "Today's stress split: "
+            + "calm \(durationLabel(totals.calmHours)), "
+            + "moderate \(durationLabel(totals.moderateHours)), "
+            + "high \(durationLabel(totals.highHours))."
+        )
+    }
+
+    /// "—" when a band had no scored hours, else "Nh" (each scored bucket is one hour).
+    private func durationLabel(_ hours: Int) -> String {
+        hours <= 0 ? "—" : "\(hours)h"
     }
 }
 
@@ -778,32 +1092,53 @@ private func sampleStressTrend(_ n: Int) -> [TrendPoint] {
     }
 }
 
+/// A sample waking-hour timeline (06:00→22:00) for the preview, with a couple of
+/// no-signal gaps so the line break reads honestly.
+private func sampleDaytimeHours() -> [DaytimeStress.HourPoint] {
+    let base = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)
+    return (DaytimeStress.wakingStartHour...DaytimeStress.wakingEndHour).map { h in
+        let curve = 1.3 + 1.1 * sin(Double(h - 6) / 3.2)
+        // Drop two hours to show the gap behaviour.
+        let level: Double? = (h == 11 || h == 17) ? nil : min(max(curve, 0), 3)
+        return DaytimeStress.HourPoint(hour: h, startTs: base + h * 3600,
+                                       level: level, meanHR: 64, rmssd: 38)
+    }
+}
+
 private struct StressPreviewHarness: View {
     let score: Double
     @State private var range: ExploreRange = .month
     var body: some View {
         let band = StressBand(score: score)
+        let hours = sampleDaytimeHours()
         ScrollView {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 Text("Stress").font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
 
-                ZStack {
-                    ScenicHeroBackground(domain: .stress)
-                        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-                    NoopCard(tint: StrandPalette.stressColor) {
-                        VStack(spacing: 14) {
-                            HStack {
-                                Text("Stress monitor").strandOverline()
-                                Spacer()
-                                StatePill("\(band.title)", tone: band.tone)
-                            }
-                            StressHeroGauge(score: score, band: band)
-                                .frame(maxWidth: .infinity)
-                            Text(StressMath.explanation(band: band, rhrDelta: 3, hrvDelta: -8, usingStored: false))
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                // Clean hero — the semicircle gauge on a frosted card (no scenic glow).
+                NoopCard(tint: StrandPalette.stressColor) {
+                    VStack(spacing: 14) {
+                        HStack {
+                            Text("Stress monitor").strandOverline()
+                            Spacer()
+                            StatePill("\(band.title)", tone: band.tone)
                         }
+                        StressHeroGauge(score: score, band: band)
+                            .frame(maxWidth: .infinity)
+                        Text(StressMath.explanation(band: band, rhrDelta: 3, hrvDelta: -8, usingStored: false))
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                // Screen-9 day autonomic-load line + Calm/Moderate/High totals bar.
+                NoopCard(tint: StrandPalette.stressColor) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Autonomic load through the day").strandOverline()
+                        DaytimeLoadLine(hours: hours)
+                        Divider().overlay(StrandPalette.hairline)
+                        StressTotalsBar(totals: StressTotals(hours: hours))
                     }
                 }
 
