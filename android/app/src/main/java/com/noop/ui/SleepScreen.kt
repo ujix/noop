@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -130,6 +131,10 @@ fun SleepScreen(
     // `sleeps` in place WITHOUT touching `days`, so it must not reset the browse — keeping the
     // user on the night they just edited. (#160)
     var nightOffset by remember { mutableIntStateOf(0) }
+    // True while an edit is outstanding (DB written, analyzeRecent not yet re-emitted via `days`).
+    // Cleared when the next `days` change lands — which is the signal that recalculation finished.
+    var sleepEditPending by remember { mutableStateOf(false) }
+    var showSleepEditConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(days) {
         sleeps = runCatching {
             val now = System.currentTimeMillis() / 1000L
@@ -146,7 +151,10 @@ fun SleepScreen(
             val computedOnly = computed.filter { localEndDay(it.endTs) !in importedDays }
             (imported + computedOnly).sortedBy { it.startTs }
         }.getOrDefault(emptyList())
-        nightOffset = 0
+        // Don't reset the browse position while an edit is in-flight — keep the user on the
+        // night they just edited rather than jumping back to latest (#260 / follow-up).
+        if (!sleepEditPending) nightOffset = 0
+        sleepEditPending = false  // recalculation done (no-op on initial load)
     }
 
     // Export-verbatim sleep figures (sleep_performance / consistency / need / debt) — the
@@ -255,6 +263,42 @@ fun SleepScreen(
         if (idx >= 0) nightOffset = sleeps.lastIndex - idx
     }
 
+    // Auto-dismiss the edit-confirm dialog once recalculation completes.
+    LaunchedEffect(sleepEditPending) {
+        if (!sleepEditPending) showSleepEditConfirm = false
+    }
+    if (showSleepEditConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { /* blocked while pending; auto-dismissed on completion */ },
+            containerColor = Palette.surfaceRaised,
+            titleContentColor = Palette.textPrimary,
+            textContentColor = Palette.textSecondary,
+            title = { Text("Edit saved", style = NoopType.headline) },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Metrics.space12),
+                ) {
+                    if (sleepEditPending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Palette.accent,
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Text(
+                        if (sleepEditPending)
+                            "Recalculating your sleep metrics…"
+                        else
+                            "Your sleep metrics have been updated.",
+                        style = NoopType.subhead,
+                    )
+                }
+            },
+            confirmButton = {},
+        )
+    }
+
     ScreenScaffold(title = "Sleep", subtitle = "Last night, read in two seconds.") {
         if (model == null && night == null) {
             // While the strap is mid-offload, say so — "No nights" reads as final otherwise (#77).
@@ -277,6 +321,7 @@ fun SleepScreen(
                 lastIndex = max(sleeps.lastIndex, 0),
                 onNavigate = { nightOffset = it },
                 session = night?.session,
+                editPending = sleepEditPending,
                 onUpdateTimes = { s, start, end ->
                     // Optimistic: rewrite this session in `sleeps` so every metric recomputes
                     // immediately, then persist (delete-then-upsert) off the UI thread. (PR #260)
@@ -284,6 +329,8 @@ fun SleepScreen(
                         if (it.deviceId == s.deviceId && it.startTs == s.startTs) it.copy(startTs = start, endTs = end)
                         else it
                     }
+                    sleepEditPending = true
+                    showSleepEditConfirm = true
                     scope.launch { vm.updateSleepSessionTimes(s, start, end) }
                 },
                 onDeleteSession = { s ->
@@ -401,9 +448,10 @@ private fun Hero(
     onUpdateTimes: (SleepSession, Long, Long) -> Unit = { _, _, _ -> },
     onDeleteSession: (SleepSession) -> Unit = {},
     onPickNightDate: ((LocalDate) -> Unit)? = null,
+    editPending: Boolean = false,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
-        NightNavHeader(nightOffset, lastIndex, clock, onNavigate, session, onUpdateTimes, onDeleteSession, onPickNightDate)
+        NightNavHeader(nightOffset, lastIndex, clock, onNavigate, session, onUpdateTimes, onDeleteSession, onPickNightDate, editPending)
         // The night's clock window — when you fell asleep and when you woke — as its own clearly
         // labelled row. These were only ever in the nav-header's trailing caption, which truncates
         // between the two chevrons on a phone, so in practice the two times people look for first
@@ -663,6 +711,7 @@ private fun NightNavHeader(
     onUpdateTimes: (SleepSession, Long, Long) -> Unit = { _, _, _ -> },
     onDeleteSession: (SleepSession) -> Unit = {},
     onPickNightDate: ((LocalDate) -> Unit)? = null,
+    editPending: Boolean = false,
 ) {
     val canGoOlder = offset < lastIndex
     val canGoNewer = offset > 0
@@ -850,12 +899,20 @@ private fun NightNavHeader(
             )
             if (session != null) {
                 Spacer(Modifier.width(Metrics.space6))
-                Icon(
-                    Icons.Filled.Edit,
-                    contentDescription = "Adjust sleep times",
-                    tint = Palette.textTertiary,
-                    modifier = Modifier.size(14.dp).clickable { showTimeChoice = true },
-                )
+                if (editPending) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = Palette.textTertiary,
+                        strokeWidth = 1.5.dp,
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Adjust sleep times",
+                        tint = Palette.textTertiary,
+                        modifier = Modifier.size(14.dp).clickable { showTimeChoice = true },
+                    )
+                }
                 Spacer(Modifier.width(Metrics.space12))
                 Icon(
                     Icons.Filled.DeleteOutline,
