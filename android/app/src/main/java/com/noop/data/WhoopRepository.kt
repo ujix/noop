@@ -172,8 +172,12 @@ class WhoopRepository(private val dao: WhoopDao) {
      *  (efficiency, restingHr, avgHrv, stagesJSON) is preserved via [SleepSession.copy]. */
     suspend fun updateSleepSessionTimes(session: SleepSession, newStartTs: Long, newEndTs: Long) {
         dao.deleteSleepSession(session.deviceId, session.startTs)
-        dao.upsertSleepSessions(listOf(session.copy(startTs = newStartTs, endTs = newEndTs)))
+        dao.upsertSleepSessions(listOf(session.copy(startTs = newStartTs, endTs = newEndTs, userEdited = true)))
     }
+
+    /** Sleep sessions for [deviceId] that the user has manually adjusted (bed/wake-time edits). */
+    suspend fun userEditedSleepSessions(deviceId: String): List<SleepSession> =
+        dao.userEditedSleepSessions(deviceId)
 
     /** Remove a sleep session entirely — the delete half of [updateSleepSessionTimes] with no
      *  re-insert. (deviceId, startTs) is the primary key, so it uniquely identifies the row, letting

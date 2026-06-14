@@ -223,6 +223,7 @@ data class SleepSession(
     val restingHr: Int? = null,
     val avgHrv: Double? = null,
     val stagesJSON: String? = null,
+    val userEdited: Boolean = false,
 )
 
 /**

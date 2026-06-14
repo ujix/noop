@@ -78,6 +78,10 @@ interface WhoopDao {
     @Query("DELETE FROM sleepSession WHERE deviceId = :deviceId AND startTs = :startTs")
     suspend fun deleteSleepSession(deviceId: String, startTs: Long)
 
+    /** All sleep sessions for [deviceId] where the user manually adjusted the bed/wake time. */
+    @Query("SELECT * FROM sleepSession WHERE deviceId = :deviceId AND userEdited = 1")
+    suspend fun userEditedSleepSessions(deviceId: String): List<SleepSession>
+
     @Upsert
     suspend fun upsertMetricSeries(rows: List<MetricSeriesRow>)
 

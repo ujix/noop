@@ -42,7 +42,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AppleDaily::class,
         PpgHrSample::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class WhoopDatabase : RoomDatabase() {
@@ -138,12 +138,24 @@ abstract class WhoopDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6 -> v7: ADDITIVE — adds `sleepSession.userEdited` (INTEGER/Boolean, default 0) so that
+         * a user's manual bed/wake-time edit survives subsequent IntelligenceEngine re-runs, which
+         * would otherwise overwrite the edit via upsert. Nullable column with no NOT NULL lets
+         * existing rows read back as `false` (Room maps SQL NULL → Kotlin Boolean default false).
+         */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sleepSession` ADD COLUMN `userEdited` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private fun build(appContext: Context): WhoopDatabase =
             Room.databaseBuilder(appContext, WhoopDatabase::class.java, DB_NAME)
                 // Real additive migration — NO destructive fallback (see the class doc): with
                 // exportSchema=false a silent rebuild would lose already-acked, non-resendable strap
                 // history on any schema mismatch. Room throws loudly instead; CI guards the SQL.
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
     }
 }

@@ -191,9 +191,10 @@ object IntelligenceEngine {
             val dayStart = nowLocalMidnight - offset * SECONDS_PER_DAY
             val day = AnalyticsEngine.dayString(dayStart, tzOffsetSeconds)
             // Read a generous window around the night that ends on `day`; the stager finds
-            // the span. (30 h before, 12 h after — matches the Swift window.)
+            // the span. (30 h before, 18 h after — extended from 12 h to capture late-morning /
+            // early-afternoon sleep that ends past noon, e.g. a 7 AM–3 PM rest day.)
             val from = dayStart - 30 * 3_600L
-            val to = dayStart + 12 * 3_600L
+            val to = dayStart + 18 * 3_600L
 
             val hr = repo.hrSamples(importedDeviceId, from, to, STREAM_LIMIT)
             if (hr.size < MIN_HR_SAMPLES) continue // need real raw data, not a stray sample
@@ -388,7 +389,16 @@ object IntelligenceEngine {
         // this only fills the days the strap collected but no import covered.
         if (dailies.isNotEmpty()) repo.upsertDailyMetrics(dailies)
         if (restRows.isNotEmpty()) repo.upsertMetricSeries(restRows)
-        if (sleepRows.isNotEmpty()) repo.upsertSleepSessions(sleepRows)
+        if (sleepRows.isNotEmpty()) {
+            // P2 guard: skip re-computing sessions the user manually adjusted (bed/wake-time
+            // edits set userEdited=true). The user's version is re-upserted last so it survives
+            // any prior stale row at the same (deviceId, startTs) key.
+            val userEdited = repo.userEditedSleepSessions(computedId)
+            val editedKeys = userEdited.map { it.startTs }.toHashSet()
+            val toCompute = sleepRows.filter { it.startTs !in editedKeys }
+            if (toCompute.isNotEmpty()) repo.upsertSleepSessions(toCompute)
+            if (userEdited.isNotEmpty()) repo.upsertSleepSessions(userEdited)
+        }
         // Make re-detection idempotent across runs: clear the prior computed detected workouts
         // in the scored window (a bout's startTs can drift as more HR arrives, which would
         // otherwise orphan stale rows under the (deviceId,startTs,sport) key), then re-insert.
