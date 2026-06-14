@@ -48,9 +48,11 @@ object BatteryAlertNotifier {
                 appLaunchIntent(context),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            // Low battery: crossed below threshold (was above or unknown, now below).
+            // Low battery: crossed below threshold, and the strap is not already plugged in.
+            // Skip when charging == true so we don't warn about a low cell while it's being
+            // topped up (charging == null = unknown state, alert fires conservatively).
             val wasAbove = prevPct == null || prevPct >= LOW_BATTERY_THRESHOLD
-            if (wasAbove && currPct < LOW_BATTERY_THRESHOLD) {
+            if (wasAbove && currPct < LOW_BATTERY_THRESHOLD && charging != true) {
                 val n = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_stat_heart)
                     .setContentTitle("Low Battery")
