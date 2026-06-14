@@ -24,6 +24,7 @@ import com.noop.alarm.SmartAlarmStore
 import com.noop.analytics.IllnessWatch
 import com.noop.location.GpsSession
 import com.noop.location.LocationTracker
+import com.noop.notif.BatteryAlertNotifier
 import com.noop.notif.IllnessAlertNotifier
 import com.noop.ui.NoopPrefs
 import com.noop.ui.appLaunchIntent
@@ -85,6 +86,9 @@ class WhoopConnectionService : Service() {
      *  In-memory on purpose: the persisted once-a-day gate (NoopPrefs) handles dedupe across
      *  process restarts and the AppViewModel call site. */
     private var lastIllnessAlert: String? = null
+
+    /** Last battery percentage seen, used to detect threshold crossings for battery alerts. */
+    private var lastBatteryPct: Int? = null
 
     /** Smart-alarm light-sleep watcher (#207). Feeds the live HR while we're inside the wake window
      *  and, on a lighter-phase reading, advances the GUARANTEED alarm earlier. It can only ever move
@@ -195,6 +199,15 @@ class WhoopConnectionService : Service() {
                     IllnessAlertNotifier.onEvaluated(this@WhoopConnectionService, illness)
                 }
                 lastIllnessAlert = illness
+                // Battery threshold crossing alerts (low <15% and charge complete 100%).
+                val currBatteryPct = state.batteryPct?.roundToInt()
+                BatteryAlertNotifier.onBatteryUpdate(
+                    this@WhoopConnectionService,
+                    prevPct = lastBatteryPct,
+                    currPct = currBatteryPct,
+                    charging = state.charging,
+                )
+                lastBatteryPct = currBatteryPct
                 // Feed the home-screen widget from the same stream — this service is its heartbeat
                 // while the app UI is closed. Throttled + no-op without a placed widget (the store
                 // checks both); runCatching so a Glance hiccup never tears down the connection.
