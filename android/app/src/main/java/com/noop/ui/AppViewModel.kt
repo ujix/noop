@@ -502,10 +502,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** All workouts for the Workouts screen (newest first), dismissed detected bouts removed. */
     val workouts: StateFlow<List<WorkoutRow>> = _workouts.asStateFlow()
 
-    /** Persist a bed/wake-time edit for one sleep session (delete-then-upsert at the new window).
-     *  Swallows failures — the Sleep screen already applied the change optimistically. */
+    /** Persist a bed/wake-time edit for one sleep session (delete-then-upsert at the new window),
+     *  then immediately re-run the intelligence engine so stage breakdown and daily metrics
+     *  reflect the new window without waiting for the 15-min background cycle. */
     suspend fun updateSleepSessionTimes(session: com.noop.data.SleepSession, newStartTs: Long, newEndTs: Long) {
         runCatching { repository.updateSleepSessionTimes(session, newStartTs, newEndTs) }
+        runCatching {
+            IntelligenceEngine.analyzeRecent(
+                repo = repository,
+                profile = currentProfile(),
+                importedDeviceId = deviceId,
+                maxHROverride = profileStore.hrMaxOverride.takeIf { it > 0 }?.toDouble(),
+            )
+        }.onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
     }
 
     /** Delete one sleep session. Swallows failures — the Sleep screen already removed it

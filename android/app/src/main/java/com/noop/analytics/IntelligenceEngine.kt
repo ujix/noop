@@ -394,10 +394,18 @@ object IntelligenceEngine {
             // edits set userEdited=true). The user's version is re-upserted last so it survives
             // any prior stale row at the same (deviceId, startTs) key.
             val userEdited = repo.userEditedSleepSessions(computedId)
+            val computedByStartTs = sleepRows.associateBy { it.startTs }
             val editedKeys = userEdited.map { it.startTs }.toHashSet()
             val toCompute = sleepRows.filter { it.startTs !in editedKeys }
+            // Keep user's startTs/endTs but refresh stagesJSON from the new sensor analysis
+            // so the Stage breakdown card reflects the extended wake window the user set.
+            val refreshedEdited = userEdited.map { edited ->
+                computedByStartTs[edited.startTs]?.let { computed ->
+                    edited.copy(stagesJSON = computed.stagesJSON)
+                } ?: edited
+            }
             if (toCompute.isNotEmpty()) repo.upsertSleepSessions(toCompute)
-            if (userEdited.isNotEmpty()) repo.upsertSleepSessions(userEdited)
+            if (refreshedEdited.isNotEmpty()) repo.upsertSleepSessions(refreshedEdited)
         }
         // Make re-detection idempotent across runs: clear the prior computed detected workouts
         // in the scored window (a bout's startTs can drift as more HR arrives, which would

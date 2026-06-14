@@ -47,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -132,9 +133,8 @@ fun SleepScreen(
     // user on the night they just edited. (#160)
     var nightOffset by remember { mutableIntStateOf(0) }
     // True while an edit is outstanding (DB written, analyzeRecent not yet re-emitted via `days`).
-    // Cleared when the next `days` change lands — which is the signal that recalculation finished.
+    // Cleared when the next `days` change lands — the signal that recalculation completed.
     var sleepEditPending by remember { mutableStateOf(false) }
-    var showSleepEditConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(days) {
         sleeps = runCatching {
             val now = System.currentTimeMillis() / 1000L
@@ -263,51 +263,43 @@ fun SleepScreen(
         if (idx >= 0) nightOffset = sleeps.lastIndex - idx
     }
 
-    // Auto-dismiss the edit-confirm dialog once recalculation completes.
-    LaunchedEffect(sleepEditPending) {
-        if (!sleepEditPending) showSleepEditConfirm = false
-    }
-    if (showSleepEditConfirm) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { /* blocked while pending; auto-dismissed on completion */ },
-            containerColor = Palette.surfaceRaised,
-            titleContentColor = Palette.textPrimary,
-            textContentColor = Palette.textSecondary,
-            title = { Text("Edit saved", style = NoopType.headline) },
-            text = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Metrics.space12),
-                ) {
-                    if (sleepEditPending) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = Palette.accent,
-                            strokeWidth = 2.dp,
-                        )
-                    }
-                    Text(
-                        if (sleepEditPending)
-                            "Recalculating your sleep metrics…"
-                        else
-                            "Your sleep metrics have been updated.",
-                        style = NoopType.subhead,
-                    )
-                }
-            },
-            confirmButton = {},
-        )
-    }
-
     ScreenScaffold(title = "Sleep", subtitle = "Last night, read in two seconds.") {
         if (model == null && night == null) {
             // While the strap is mid-offload, say so — "No nights" reads as final otherwise (#77).
             if (live.backfilling) SyncingHistoryNote(chunks = live.syncChunksThisSession)
             SleepEmptyState()
         } else {
+            // Non-intrusive recalculation banner: shown while a bed/wake edit is in-flight.
+            // Sits above the hero so the user can still scroll and read; content below fades
+            // slightly to signal that numbers are updating.
+            if (sleepEditPending) {
+                NoopCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Metrics.space16, vertical = Metrics.space12),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Metrics.space12),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Palette.accent,
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            "Recalculating sleep metrics…",
+                            style = NoopType.subhead,
+                            color = Palette.textSecondary,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(Metrics.selectorTopUp))
+            }
             // REST HERO — a scenic indigo backdrop with the night's sleep-performance score as a
             // layered BevelGauge (Rest gradient), else a big rounded hours-slept headline. Mirrors the
             // macOS SleepView.restHero. Presentation-only — reads the existing model figures. (Bevel)
+            Box(modifier = Modifier.alpha(if (sleepEditPending) 0.45f else 1f)) {
+            Column {
             RestHero(
                 score = model?.performance?.latest,
                 asleepMin = model?.stages?.asleep,
@@ -330,7 +322,6 @@ fun SleepScreen(
                         else it
                     }
                     sleepEditPending = true
-                    showSleepEditConfirm = true
                     scope.launch { vm.updateSleepSessionTimes(s, start, end) }
                 },
                 onDeleteSession = { s ->
@@ -357,6 +348,8 @@ fun SleepScreen(
                 Spacer(Modifier.height(Metrics.selectorTopUp))
                 SleepConsistencyCard(sleeps)
             }
+            } // Column
+            } // Box (alpha)
         }
     }
 }
@@ -1703,7 +1696,13 @@ internal fun buildSleepModel(
         if (lastDay != null && imported.consistency[lastDay] != null) {
             val series = metricsWindow.mapNotNull { imported.consistency[it.day] }
             Metric(series.lastOrNull(), mean(series), series)
-        } else consistencySeries(metricsWindow)   // APPROXIMATE duration-spread proxy
+        } else {
+            // Use windowDays (original DailyMetric totalSleepMin) not metricsWindow: the
+            // metricsWindow substitutes sessionDurationMin (time in bed = endTs−startTs)
+            // which is always larger than totalSleepMin (actual asleep time). One inflated
+            // outlier in the spread pushes SD past 90 min → score collapses to 0%.
+            consistencySeries(windowDays)
+        }
     }
     val hoursVsNeeded = metric(metricsWindow) { d ->
         val need = imported.needMin[d.day] ?: needMin   // imported need wins per day
