@@ -29,15 +29,20 @@ import androidx.compose.material.icons.filled.SportsMartialArts
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.SportsTennis
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,7 +74,7 @@ import kotlin.math.roundToInt
  * system (NoopCard / StatTile / SectionHeader / SegmentedPillControl / SourceBadge)
  * so every card, tile and row lines up:
  *
- *   - a range pill (7D / 30D / 90D / 1Y / All) that filters the loaded sessions,
+ *   - a range pill (W / M / 3M / 6M / 1Y / ALL) that filters the loaded sessions,
  *   - a grid of summary StatTiles (count / time / calories / distance / most-active),
  *   - an "Activity Breakdown" of per-sport NoopCards with an identical internal layout,
  *   - an "All Sessions" NoopCard of fixed-height rows (date · sport · dur · HR · kcal ·
@@ -513,6 +518,7 @@ private fun ZoneStat(zone: Int, minutes: Double, total: Double, modifier: Modifi
 
 // MARK: - All sessions (one NoopCard, uniform fixed-height rows)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SessionsSection(
     rows: List<WorkoutRow>,
@@ -521,6 +527,8 @@ private fun SessionsSection(
     onDismiss: (WorkoutRow) -> Unit,
     onDelete: (WorkoutRow) -> Unit,
 ) {
+    var selectedRow by remember { mutableStateOf<WorkoutRow?>(null) }
+
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         SectionHeader(title = "All Sessions", overline = "Log", trailing = "${rows.size} total")
         NoopCard(padding = 0.dp) {
@@ -535,11 +543,16 @@ private fun SessionsSection(
                         onRelabel = onRelabel,
                         onDismiss = onDismiss,
                         onDelete = onDelete,
+                        onClick = { selectedRow = it },
                     )
                     if (idx != rows.lastIndex) FullDivider(alpha = 0.5f)
                 }
             }
         }
+    }
+
+    selectedRow?.let { row ->
+        WorkoutDetailSheet(row = row, onDismiss = { selectedRow = null })
     }
 }
 
@@ -556,7 +569,7 @@ private fun SessionHeaderRow() {
         ColHeader("Date", Modifier.weight(1.7f), TextAlign.Start)
         ColHeader("Sport", Modifier.weight(1.3f), TextAlign.Start)
         ColHeader("Dur", Modifier.weight(1f), TextAlign.End)
-        ColHeader("HR", Modifier.weight(0.9f), TextAlign.End)
+        ColHeader("HR", Modifier.weight(1.1f), TextAlign.End)
         ColHeader("Kcal", Modifier.weight(1f), TextAlign.End)
         ColHeader("Src", Modifier.weight(1f), TextAlign.End)
         // Trailing spacer column over the per-row overflow menu, so headers line up with the cells.
@@ -586,12 +599,14 @@ private fun SessionRow(
     onRelabel: (WorkoutRow, String) -> Unit,
     onDismiss: (WorkoutRow) -> Unit,
     onDelete: (WorkoutRow) -> Unit,
+    onClick: (WorkoutRow) -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(background)
-            .height(48.dp)
+            .clickable { onClick(row) }
+            .height(56.dp)
             .padding(start = Metrics.cardPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -621,7 +636,7 @@ private fun SessionRow(
         Cell(durationLabel(row.durationS), Modifier.weight(1f))
         Cell(
             row.avgHr?.toString() ?: "–",
-            Modifier.weight(0.9f),
+            Modifier.weight(1.1f),
             color = if (row.avgHr != null) Palette.metricRose else null,
         )
         Cell(
@@ -634,6 +649,73 @@ private fun SessionRow(
             SourceBadge(srcLabel, tint = srcTint)
         }
         RowActionsMenu(row, onEdit, onRelabel, onDismiss, onDelete)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WorkoutDetailSheet(row: WorkoutRow, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Palette.surfaceOverlay,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    sportIcon(row.sport),
+                    contentDescription = null,
+                    tint = Palette.effortColor,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(WorkoutEditing.displaySport(row.sport), style = NoopType.title2, color = Palette.textPrimary)
+                    Text(dateLabel(row.startTs), style = NoopType.footnote, color = Palette.textTertiary)
+                }
+                val (srcLabel, srcTint) = row.sourceBadge
+                SourceBadge(srcLabel, tint = srcTint)
+            }
+            CardDivider()
+            DetailRow("Time", timeRangeLabel(row.startTs, row.endTs))
+            DetailRow("Duration", durationLabel(row.durationS))
+            if (row.avgHr != null) DetailRow("Avg HR", "${row.avgHr} bpm")
+            if (row.maxHr != null) DetailRow("Max HR", "${row.maxHr} bpm")
+            if (row.energyKcal != null) DetailRow("Calories", "${grouped(row.energyKcal)} kcal")
+            if (row.distanceM != null) {
+                val unitSystem = UnitPrefs.system(LocalContext.current)
+                DetailRow("Distance", UnitFormatter.distanceFromKilometers(row.distanceM / 1000.0, unitSystem))
+            }
+            if (row.strain != null) DetailRow("Strain", oneDecimal(row.strain))
+            if (!row.notes.isNullOrBlank()) DetailRow("Notes", row.notes)
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Overline(label)
+        Text(
+            value,
+            style = NoopType.body,
+            color = Palette.textPrimary,
+            maxLines = 3,
+            textAlign = TextAlign.End,
+            modifier = Modifier.padding(start = 16.dp),
+        )
     }
 }
 
@@ -882,11 +964,12 @@ private fun FullDivider(alpha: Float = 1f) {
 // MARK: - Range model
 
 private enum class WorkoutRange(val label: String, val caption: String, val days: Int?, val heroWord: String) {
-    Week("7D", "last 7 days", 7, "week"),
-    Month("30D", "last 30 days", 30, "month"),
-    Quarter("90D", "last 90 days", 90, "quarter"),
+    Week("W", "last 7 days", 7, "week"),
+    Month("M", "last 30 days", 30, "month"),
+    Quarter("3M", "last 90 days", 90, "quarter"),
+    SixMonth("6M", "last 6 months", 180, "6 months"),
     Year("1Y", "last year", 365, "year"),
-    All("All", "all time", null, "log"),
+    All("ALL", "all time", null, "log"),
 }
 
 /** This range plus every larger range, ascending — the auto-expand search order. */
