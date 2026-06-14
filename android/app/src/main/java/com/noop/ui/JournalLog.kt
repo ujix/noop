@@ -81,9 +81,17 @@ internal fun normJournalKey(s: String): String =
         }
     }.trim().lowercase()
 
+/** Secondary dedup key: whitespace-normalised AND trailing punctuation stripped.
+ *  Catches "Did you view a screen in bed?" vs "Did you view a screen in bed" duplicates that
+ *  differ only in the final `?`. The primary `normJournalKey` is unchanged so stored keys and
+ *  the effects-engine join are unaffected. */
+private fun normJournalKeyFuzzy(s: String): String = normJournalKey(s).trimEnd('?', '.', '!')
+
 /** Catalog = imported questions (exact strings → logged days join imported history), then starter
  *  defaults, then user customs. Case-insensitive dedupe, first casing wins, with `hidden` questions
- *  (starter/imported ones the user removed) filtered out. */
+ *  (starter/imported ones the user removed) filtered out.
+ *  A secondary fuzzy pass (punctuation-stripped key) collapses "Did you X?" / "Did you X" pairs
+ *  so a custom question that's a punctuation-only variant of a starter doesn't double-prompt. */
 internal fun mergeJournalCatalog(
     imported: List<String>,
     custom: List<String>,
@@ -93,12 +101,17 @@ internal fun mergeJournalCatalog(
     val hiddenSet = hidden.map { normJournalKey(it) }.toHashSet()
     val out = ArrayList<String>()
     val seen = HashSet<String>()
+    val seenFuzzy = HashSet<String>()
     for (q in imported + starter + custom) {
         // Display text trims surrounding whitespace; the dedup key normalises ALL whitespace (see
         // normJournalKey) so an imported "…magnesium?\n" folds onto the starter (#224).
         val t = q.trim()
         val key = normJournalKey(q)
-        if (t.isNotEmpty() && key !in hiddenSet && seen.add(key)) out.add(t)
+        val fuzzy = normJournalKeyFuzzy(q)
+        // Evaluate both sets unconditionally so their state is always updated (don't short-circuit).
+        val isNewExact = seen.add(key)
+        val isNewFuzzy = seenFuzzy.add(fuzzy)
+        if (t.isNotEmpty() && key !in hiddenSet && isNewExact && isNewFuzzy) out.add(t)
     }
     return out
 }
@@ -308,7 +321,7 @@ private fun JournalChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .background(if (selected) Palette.accent else Palette.surfaceInset)
             .border(1.dp, if (selected) Palette.accent else Palette.hairline, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
     )
 }
 
