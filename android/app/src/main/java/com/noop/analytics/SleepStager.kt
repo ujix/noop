@@ -485,6 +485,17 @@ object SleepStager {
         return restingHR.toDouble() <= baseline * daytimeRestingHRMult
     }
 
+    /**
+     * True when [start], in LOCAL time, falls OUTSIDE the daytime band — i.e. the sleep began
+     * at night. Anchors a continuous-sleep chain: only a chain that began overnight may exempt
+     * its tail from the daytime guard (a late wake or morning stir that runs past the band start).
+     */
+    internal fun isOvernightOnset(start: Long, tzOffsetSeconds: Long): Boolean {
+        val secOfDay = Math.floorMod(start + tzOffsetSeconds, secondsPerDay)
+        val hour = (secOfDay / 3_600L).toInt()
+        return !(hour >= daytimeBandStartHour && hour < daytimeBandEndHour)
+    }
+
     // ── detectSleep (public) ──────────────────────────────────────────────────
 
     /**

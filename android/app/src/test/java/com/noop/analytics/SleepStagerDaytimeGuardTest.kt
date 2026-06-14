@@ -118,6 +118,36 @@ class SleepStagerDaytimeGuardTest {
     }
 
     @Test
+    fun overnightSleepTailPastNoonKeepsLateWake() {
+        // REGRESSION ("woke at noon" bug — Android parity with Swift PR #353):
+        // An overnight sleep whose TAIL runs past the daytime-band start — a brief 40-min morning
+        // stir then back to sleep until ~12:40 — must keep the LATE wake time. The tail is
+        // daytime-centered and its HR sits at baseline (fails the stricter daytime resting-HR bar),
+        // so without the overnight continuation exemption it was rejected and the wake was
+        // truncated to ~10:00. The tail directly continues a chain that began overnight
+        // (gap = 40 min ≤ nightContinuationGapMin = 90), so the chain exempts it.
+        val nStart = startAtHour(2)           // 02:00 overnight onset
+        val nDur = 8 * 60 * 60               // → 10:00
+        val wStart = nStart + nDur            // 10:00 brief morning wake
+        val wDur = 40 * 60                    // 40 min: > mergeGapMin (15), ≤ continuation (90)
+        val tStart = wStart + wDur            // 10:40 back to sleep
+        val tDur = 2 * 60 * 60               // → 12:40; center ~11:40 — in the daytime band
+
+        // Tail HR == night HR == baseline (50 bpm): passes basic confirmation (≤ baseline×1.05)
+        // but FAILS stricter daytime resting bar (> baseline×0.95) → only the overnight chain
+        // exemption can keep it.
+        val grav = stillGravity(nStart, nDur) + activeGravity(wStart, wDur) + stillGravity(tStart, tDur)
+        val hr = hrStream(nStart, nDur, 50) + hrStream(wStart, wDur, 70) + hrStream(tStart, tDur, 50)
+
+        val sessions = SleepStager.detectSleep(hr = hr, gravity = grav)
+        val latestWake = sessions.maxOfOrNull { it.end } ?: 0L
+        assertTrue(
+            "overnight sleep's post-11:00 tail must be kept — wake must not be truncated to late morning",
+            latestWake >= tStart + tDur - 10 * 60
+        )
+    }
+
+    @Test
     fun daytimeGuardEmptyInputsNoCrash() {
         // A still daytime stretch with NO HR (baseline null) must return [] cleanly — the
         // daytime path rejects without touching any HR array. Guards the index-out-of-range
