@@ -191,9 +191,10 @@ object IntelligenceEngine {
             val dayStart = nowLocalMidnight - offset * SECONDS_PER_DAY
             val day = AnalyticsEngine.dayString(dayStart, tzOffsetSeconds)
             // Read a generous window around the night that ends on `day`; the stager finds
-            // the span. (30 h before, 12 h after — matches the Swift window.)
+            // the span. (30 h before, 18 h after — extended from 12 h to capture late-morning /
+            // early-afternoon sleep that ends past noon, e.g. a 7 AM–3 PM rest day.)
             val from = dayStart - 30 * 3_600L
-            val to = dayStart + 12 * 3_600L
+            val to = dayStart + 18 * 3_600L
 
             val hr = repo.hrSamples(importedDeviceId, from, to, STREAM_LIMIT)
             if (hr.size < MIN_HR_SAMPLES) continue // need real raw data, not a stray sample
