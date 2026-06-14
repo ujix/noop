@@ -112,6 +112,15 @@ object SleepStager {
      */
     const val daytimeRestingHRMult: Double = 0.95
 
+    /**
+     * A still sleep run that resumes within this gap (minutes) of the last accepted run is the
+     * night's TAIL — a late wake past the daytime-band start, or a brief morning stir then back
+     * to sleep — NOT an isolated daytime nap, so it skips the daytime guard. Without this, a
+     * real sleep that ran past ~11:00 local had its tail rejected and the displayed wake was
+     * truncated to late morning (late sleepers / shift workers). Mirrors Swift PR #353.
+     */
+    const val nightContinuationGapMin: Int = 90
+
     /** Seconds in a calendar day (for local-hour-of-day arithmetic). */
     const val secondsPerDay: Long = 86_400L
 
@@ -505,6 +514,17 @@ object SleepStager {
         if ((p.end - p.start) < daytimeMinSleepS) return false
         if (baseline == null || restingHR == null) return false
         return restingHR.toDouble() <= baseline * daytimeRestingHRMult
+    }
+
+    /**
+     * True when [start], in LOCAL time, falls OUTSIDE the daytime band — i.e. the sleep began
+     * at night. Anchors a continuous-sleep chain: only a chain that began overnight may exempt
+     * its tail from the daytime guard (a late wake or morning stir that runs past the band start).
+     */
+    internal fun isOvernightOnset(start: Long, tzOffsetSeconds: Long): Boolean {
+        val secOfDay = Math.floorMod(start + tzOffsetSeconds, secondsPerDay)
+        val hour = (secOfDay / 3_600L).toInt()
+        return !(hour >= daytimeBandStartHour && hour < daytimeBandEndHour)
     }
 
     // ── detectSleep (public) ──────────────────────────────────────────────────
