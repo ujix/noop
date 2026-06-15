@@ -198,6 +198,13 @@ fun InsightsScreen(vm: AppViewModel) {
                 .filter { it.day == journalDayKey(1L) }
                 .associate { it.question to it.answeredYes }
             if (yesterdayAnswers.isNotEmpty()) {
+                // Upsert real rows for today so the effects engine counts the day as logged
+                // and onClear can delete the row it finds. Without this the chips looked
+                // pre-filled but no row existed, so "confirm" persisted nothing and
+                // "clear" tried to delete a phantom.
+                vm.repo.upsertJournal(yesterdayAnswers.map { (q, yes) ->
+                    JournalEntry(JOURNAL_DEVICE_ID, key, q, yes)
+                })
                 answers = yesterdayAnswers
                 preFilledFromYesterday = true
             } else {
