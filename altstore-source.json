@@ -18,6 +18,15 @@
       "screenshotURLs": [],
       "versions": [
         {
+          "version": "3.4.0",
+          "buildVersion": "83",
+          "date": "2026-06-15",
+          "localizedDescription": "Today hero fix, WHOOP-4 strap rename, journal pre-fill",
+          "downloadURL": "https://github.com/NoopApp/noop/releases/download/v3.4.0/NOOP-v3.4.0-ios.ipa",
+          "size": 13763409,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "3.3.1",
           "buildVersion": "82",
           "date": "2026-06-15",
@@ -469,12 +478,12 @@
           "NSHealthUpdateUsageDescription": "NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it."
         }
       },
-      "version": "3.3.1",
-      "buildVersion": "82",
+      "version": "3.4.0",
+      "buildVersion": "83",
       "versionDate": "2026-06-15",
-      "versionDescription": "More quick-relabel sports (CrossFit, Hiking, Tennis)",
-      "downloadURL": "https://github.com/NoopApp/noop/releases/download/v3.3.1/NOOP-v3.3.1-ios.ipa",
-      "size": 13746450,
+      "versionDescription": "Today hero fix, WHOOP-4 strap rename, journal pre-fill",
+      "downloadURL": "https://github.com/NoopApp/noop/releases/download/v3.4.0/NOOP-v3.4.0-ios.ipa",
+      "size": 13763409,
       "minOSVersion": "17.0"
     }
   ],
