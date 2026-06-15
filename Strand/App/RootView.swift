@@ -89,6 +89,9 @@ struct RootView: View {
     // status pill is isolated into SidebarStatus so HR/frame ticks don't re-render the whole
     // NavigationSplitView shell + sidebar list.
     @EnvironmentObject var repo: Repository
+    /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Observed here so a screen can
+    /// switch the sidebar selection without owning it — see `NavRouter`.
+    @EnvironmentObject var router: NavRouter
     @State private var selection: NavItem? = .today
 
     var body: some View {
@@ -118,6 +121,15 @@ struct RootView: View {
                 .background(StrandPalette.surfaceBase.ignoresSafeArea())
         }
         .task { await repo.refresh() }
+        // Honour a cross-screen request to open a top-level destination (e.g. Live's "Manage devices"),
+        // then clear it so the same tap can fire again later. Devices maps to the `.devices` sidebar item.
+        .onChangeCompat(of: router.requestedDestination) { dest in
+            switch dest {
+            case .devices: selection = .devices
+            case nil: break
+            }
+            if dest != nil { router.requestedDestination = nil }
+        }
     }
 
     private var brand: some View {

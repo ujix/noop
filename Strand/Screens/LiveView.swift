@@ -13,6 +13,10 @@ import WhoopStore
 struct LiveView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
+    /// Cross-screen navigation — drives the "Manage devices" affordance to the first-class Devices
+    /// manager (where bands are paired / switched). The shell (sidebar on macOS, a sheet on iOS) routes
+    /// the request; LiveView never needs to know which.
+    @EnvironmentObject private var router: NavRouter
 
     /// Which strap the user is pairing — persists across launches. Drives which
     /// BLE service we scan for so a WHOOP 4.0 scan never hangs on a WHOOP 5 wrist.
@@ -26,6 +30,16 @@ struct LiveView: View {
     /// Smoothed, spike-filtered live HR from AppModel (median over a short window).
     private var displayHR: Int? { model.bpm }
     private var activeConnection: Bool { live.connected && live.bonded }
+
+    /// The display name of the active device from the registry ("WHOOP", a strap's nickname, …) — what
+    /// the user is connected to, or would connect to. Falls back to "WHOOP" before the registry opens or
+    /// when none is resolvable, keeping the WHOOP-first tone. Drives the active-device readout + copy.
+    private var activeDeviceName: String {
+        guard let registry = model.deviceRegistry,
+              let active = registry.devices.first(where: { $0.id == registry.activeDeviceId })
+        else { return "WHOOP" }
+        return active.displayName
+    }
 
     /// The live HR zone for the focal readout's colour world (presentation only — same shared
     /// `HRZones` model the live-workout screen uses). 0 = below Zone 1 / no HR yet.
@@ -83,6 +97,7 @@ struct LiveView: View {
                 // sticky across disconnects — so after the first pairing the picker vanished for good.)
                 if !activeConnection { modelPicker }
                 controls
+                manageDevicesRow
                 logCard
             }
         }
@@ -143,6 +158,7 @@ struct LiveView: View {
 
     private var headerStats: some View {
         HStack(spacing: 16) {
+            headerStat("Device", activeDeviceName)
             headerStat("Battery", live.batteryPct.map { "\(Int($0))%" } ?? "—")
             headerStat("Worn", activeConnection ? (live.worn ? "Yes" : "No") : "—")
             headerStat("Last sync", lastSyncLabel)
@@ -760,7 +776,9 @@ struct LiveView: View {
                         Text("Start a live stream")
                             .font(StrandFont.headline)
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Scan and connect to start a live stream.")
+                        // Name the band Scan will connect to, and point pairing/switching at Devices — so
+                        // an offline user knows both what this button does and where to add a different band.
+                        Text("Scan connects to \(activeDeviceName). To pair or switch bands, open Devices.")
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -770,6 +788,54 @@ struct LiveView: View {
                 scanButton
             }
         }
+    }
+
+    // MARK: - Manage devices link
+
+    /// A persistent "where to pair / switch bands" row beneath the Scan / Disconnect controls. It sends
+    /// the user to the first-class Devices manager and stays one tap away in every connection state,
+    /// naming the active band so the link reads in context. The shell routes the request via `NavRouter` —
+    /// macOS selects the Devices sidebar item, iOS presents the Devices screen.
+    private var manageDevicesRow: some View {
+        Button { router.openDevices() } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "badge.plus.radiowaves.right")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.accent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Manage devices")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(manageDevicesDetail)
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(12)
+            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(StrandPalette.hairline, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Manage devices")
+        .accessibilityHint("Opens the Devices screen, where you pair and switch bands.")
+    }
+
+    /// One-line subtitle for the Manage-devices row — names the active band and reads correctly whether
+    /// it's the live link ("Connected to …") or just the band Scan would target ("… is your active band").
+    private var manageDevicesDetail: String {
+        activeConnection
+            ? "Connected to \(activeDeviceName). Pair or switch bands in Devices."
+            : "\(activeDeviceName) is your active band. Pair or switch bands in Devices."
     }
 
     // MARK: - Controls

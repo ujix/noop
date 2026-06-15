@@ -7,9 +7,14 @@ import StrandDesign
 /// "More" list. Every screen is the same `StrandDesign`-built view the macOS app uses.
 struct RootTabView: View {
     @EnvironmentObject private var repo: Repository
+    /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Devices isn't a tab — it lives
+    /// behind the More list — so a request presents it as a sheet, matching the quick-action screens.
+    @EnvironmentObject private var router: NavRouter
 
     /// Which quick-action screen the centre FAB is presenting (nil = sheet closed).
     @State private var quickAction: QuickAction?
+    /// Presents the Devices manager (pair / switch bands) when a screen asks the shell to open it.
+    @State private var showDevices = false
     /// Drives the FAB press-state (gentle scale, dimmed gold shadow) — design-system feedback.
     @State private var fabPressed = false
     /// Selected tab — bound so tab switches can crossfade (README §Motion: ~240ms opacity swap
@@ -59,6 +64,18 @@ struct RootTabView: View {
         // animation scoped to the sheet rather than the whole shell.
         .sheet(item: $quickAction) { action in
             quickActionDestination(action)
+        }
+        // Live's "Manage devices" affordance (and any future cross-screen link to Devices) routes here:
+        // present the Devices manager in its own nav stack, the same way the quick-action screens do.
+        .sheet(isPresented: $showDevices) {
+            devicesScreen
+        }
+        // Honour a router request to open Devices, then clear it so the same tap can fire again later.
+        .onChange(of: router.requestedDestination) { _, dest in
+            if dest == .devices {
+                showDevices = true
+                router.requestedDestination = nil
+            }
         }
     }
 
@@ -137,6 +154,24 @@ struct RootTabView: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Done") { quickAction = nil }
+                            .foregroundStyle(StrandPalette.accent)
+                    }
+                }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    /// The Devices manager wrapped in its own nav stack + Done button (mirrors `quickScreen`, but
+    /// dismisses the dedicated `showDevices` sheet rather than the quick-action item).
+    private var devicesScreen: some View {
+        NavigationStack {
+            DevicesView()
+                .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(StrandPalette.surfaceBase, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showDevices = false }
                             .foregroundStyle(StrandPalette.accent)
                     }
                 }

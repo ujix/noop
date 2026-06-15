@@ -15,6 +15,9 @@ import StrandDesign
 struct StrandiOSApp: App {
     @StateObject private var model: AppModel
     @StateObject private var health: HealthKitBridge
+    /// Shared cross-screen navigation hook (e.g. Live → Devices). The iOS shell (`RootTabView`)
+    /// observes it and presents the Devices manager.
+    @StateObject private var router = NavRouter()
     @State private var liveActivity = LiveActivityController()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -43,6 +46,7 @@ struct StrandiOSApp: App {
                 .environmentObject(model.intelligence)
                 .environmentObject(model.coach)
                 .environmentObject(health)
+                .environmentObject(router)
                 .preferredColorScheme(.dark)
                 // Dynamic Type now scales the prose/label roles (StrandFont). Cap the upper end so the
                 // fixed-geometry tiles/gauges stay legible at the largest accessibility sizes rather than

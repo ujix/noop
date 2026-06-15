@@ -3,6 +3,9 @@ import SwiftUI
 @main
 struct StrandApp: App {
     @StateObject private var model = AppModel()
+    /// Shared cross-screen navigation hook (e.g. Live → Devices). The macOS shell (`RootView`)
+    /// observes it and drives the sidebar selection.
+    @StateObject private var router = NavRouter()
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +17,7 @@ struct StrandApp: App {
                 .environmentObject(model.behavior)
                 .environmentObject(model.intelligence)
                 .environmentObject(model.coach)
+                .environmentObject(router)
                 .frame(minWidth: 1000, minHeight: 700)
                 .preferredColorScheme(.dark)
                 // Dynamic Type now scales the prose/label roles (StrandFont). Cap the upper end so the
