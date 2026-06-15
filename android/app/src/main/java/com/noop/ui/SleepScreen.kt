@@ -72,6 +72,7 @@ import com.noop.data.DailyMetric
 import com.noop.data.SleepSession
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.text.SimpleDateFormat
@@ -1596,6 +1597,52 @@ internal fun stagesFromSegments(segments: List<Pair<String, Float>>): Stages? {
     return if (s.total > 0.0) s else null
 }
 
+private data class StageMins(val awake: Double, val light: Double, val deep: Double, val rem: Double)
+
+/**
+ * Extract stage minute counts from a session's stagesJSON, handling both formats:
+ *  • Minute dict  {"awake":…,"light":…,"deep":…,"rem":…}  — imported nights (noopdb / WHOOP export)
+ *  • Segment array [{start,end,stage}]                     — on-device computed nights
+ * Returns null when the JSON is absent or unparseable, so callers fall back to DailyMetric columns.
+ * SleepWindowReclip keeps the minute dict up to date after a wake-time edit, so stage counts
+ * are correct immediately — no rescore needed for imported nights.
+ */
+private fun parseSessionStages(stagesJSON: String?): StageMins? {
+    stagesJSON ?: return null
+    return runCatching {
+        val trimmed = stagesJSON.trim()
+        when {
+            trimmed.startsWith("{") -> {
+                val obj = JSONObject(trimmed)
+                val aw = obj.optDouble("awake", 0.0)
+                val li = obj.optDouble("light", 0.0)
+                val dp = obj.optDouble("deep", 0.0)
+                val rm = obj.optDouble("rem", 0.0)
+                if (aw + li + dp + rm > 0.0) StageMins(aw, li, dp, rm) else null
+            }
+            trimmed.startsWith("[") -> {
+                val arr = JSONArray(trimmed)
+                var aw = 0.0; var li = 0.0; var dp = 0.0; var rm = 0.0
+                for (i in 0 until arr.length()) {
+                    val seg = arr.optJSONObject(i) ?: continue
+                    val start = seg.optLong("start", -1)
+                    val end = seg.optLong("end", -1)
+                    if (end <= start) continue
+                    val durMin = (end - start) / 60.0
+                    when (seg.optString("stage")) {
+                        "wake"  -> aw += durMin
+                        "light" -> li += durMin
+                        "deep"  -> dp += durMin
+                        "rem"   -> rm += durMin
+                    }
+                }
+                if (aw + li + dp + rm > 0.0) StageMins(aw, li, dp, rm) else null
+            }
+            else -> null
+        }
+    }.getOrNull()
+}
+
 /**
  * Build the whole model from the cached daily metrics + the latest sleep session + the
  * export-verbatim sleep figures. Returns null when there is no usable latest night (no
@@ -1616,9 +1663,15 @@ internal fun buildSleepModel(
     }
         ?: return null
 
-    val deep = latest.deepMin ?: 0.0
-    val rem = latest.remMin ?: 0.0
-    val light = latest.lightMin ?: 0.0
+    // Prefer stage minutes from the session's (possibly reclipped) stagesJSON when it belongs
+    // to this night — so a wake-time edit on an imported or computed night updates stage cards
+    // (StagesVsTypical, Hypnogram footer) immediately without waiting on a rescore.
+    val sessionStageMins = session
+        ?.takeIf { AnalyticsEngine.dayString(it.endTs) == latest.day || localDayString(it.endTs) == latest.day }
+        ?.let { parseSessionStages(it.stagesJSON) }
+    val deep = sessionStageMins?.deep ?: latest.deepMin ?: 0.0
+    val rem = sessionStageMins?.rem ?: latest.remMin ?: 0.0
+    val light = sessionStageMins?.light ?: latest.lightMin ?: 0.0
 
     // When the passed session belongs to this night, its window (wake − onset) becomes the
     // total-in-bed figure so a bed/wake edit flows straight through every metric (performance,
@@ -2101,8 +2154,8 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
     }
     val typicalWakeLabel = String.format(Locale.US, "%02d:00", typicalWake.toInt().coerceIn(0, 23))
 
-    // Y from −4h (20:00) to 14h (14:00 next day) — covers late risers.
-    val yMin = -4f; val yMax = 14f; val yRange = yMax - yMin
+    // Y from −4h (20:00) to 18h (18:00 next day) — matches the 6 PM sensor-read window cap.
+    val yMin = -4f; val yMax = 18f; val yRange = yMax - yMin
 
     fun hourToLabel(h: Float): String {
         val norm = ((h % 24f) + 24f) % 24f
@@ -2139,7 +2192,7 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
                         val chartW = size.width - yAxisW
                         val chartH = size.height
 
-                        val gridHours = listOf(-4f, 0f, 4f, 8f, 12f)
+                        val gridHours = listOf(-4f, 0f, 4f, 8f, 12f, 16f)
                         val paint = android.graphics.Paint().apply {
                             color = labelArgb
                             textSize = 26f
