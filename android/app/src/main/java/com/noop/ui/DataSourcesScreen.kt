@@ -135,7 +135,7 @@ fun DataSourcesScreen(vm: AppViewModel) {
     var restartNeeded by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
+        ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         busy = true
@@ -547,7 +547,7 @@ fun DataSourcesScreen(vm: AppViewModel) {
                     icon = Icons.Filled.FileDownload,
                     enabled = !busy,
                     modifier = Modifier.weight(1f),
-                ) { exportLauncher.launch("strand-backup.noopdb") }
+                ) { exportLauncher.launch("strand-backup-${java.time.LocalDate.now()}.noopbak") }
                 BackupButton(
                     label = "Import…",
                     icon = Icons.Filled.FileUpload,
