@@ -134,7 +134,7 @@ final class IntelligenceEngine: ObservableObject {
             let day = AnalyticsEngine.dayString(dayStart, offsetSec: tzOffset)
             // Read a generous window around the night that ends on `day`; the stager finds the span.
             let from = dayStart - 30 * 3_600
-            let to = dayStart + 12 * 3_600
+            let to = dayStart + 18 * 3_600   // 6 PM — matches the Android window.
 
             // I2: pick the single device that owns this day, and read ITS streams below. With one device
             // this resolves to `deviceId` (active strap, has data → priority 0), so nothing changes; with

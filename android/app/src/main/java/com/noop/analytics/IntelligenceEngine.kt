@@ -219,9 +219,9 @@ object IntelligenceEngine {
             val dayStart = nowLocalMidnight - offset * SECONDS_PER_DAY
             val day = AnalyticsEngine.dayString(dayStart, tzOffsetSeconds)
             // Read a generous window around the night that ends on `day`; the stager finds
-            // the span. (30 h before, 12 h after — matches the Swift window.)
+            // the span. (30 h before, 18 h after (6 PM) — matches the Swift window.)
             val from = dayStart - 30 * 3_600L
-            val to = dayStart + 12 * 3_600L
+            val to = dayStart + 18 * 3_600L
 
             // I2: pick the single device that OWNS this day, and read ITS streams below. With one device
             // this resolves to [importedDeviceId] (active strap, has data → priority 0), so nothing
