@@ -284,9 +284,13 @@ fun SleepScreen(
                     // keep the IMMUTABLE detected startTs and store the corrected onset in
                     // startTsAdjusted with userEdited=true, so display (via effectiveStartTs) tracks the
                     // edit while the (deviceId,startTs) key never moves. (PR #260 + #395)
+                    // Reclip stagesJSON in-memory so the hypnogram strip updates instantly (same
+                    // reclip logic runs again in WhoopRepository for the durable DB copy).
                     sleeps = sleeps.map {
                         if (it.deviceId == s.deviceId && it.startTs == s.startTs) {
-                            it.copy(startTsAdjusted = start, endTs = end, userEdited = true)
+                            val reclipped = SleepWindowReclip.reclip(it.stagesJSON, it.effectiveStartTs, it.endTs, end)
+                            it.copy(startTsAdjusted = start, endTs = end, userEdited = true,
+                                    stagesJSON = reclipped ?: it.stagesJSON)
                         } else {
                             it
                         }

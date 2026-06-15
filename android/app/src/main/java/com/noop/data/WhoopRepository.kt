@@ -182,8 +182,16 @@ class WhoopRepository(private val dao: WhoopDao) {
      *  bed AND reverting the edit. Every other field (efficiency, restingHr, avgHrv, stagesJSON) is
      *  preserved via [SleepSession.copy]. */
     suspend fun updateSleepSessionTimes(session: SleepSession, newStartTs: Long, newEndTs: Long) {
+        val reclipped = com.noop.analytics.SleepWindowReclip.reclip(
+            session.stagesJSON, session.effectiveStartTs, session.endTs, newEndTs,
+        )
         dao.upsertSleepSessions(
-            listOf(session.copy(startTsAdjusted = newStartTs, endTs = newEndTs, userEdited = true)),
+            listOf(session.copy(
+                startTsAdjusted = newStartTs,
+                endTs = newEndTs,
+                userEdited = true,
+                stagesJSON = reclipped ?: session.stagesJSON,
+            )),
         )
     }
 
