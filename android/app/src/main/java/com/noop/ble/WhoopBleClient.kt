@@ -319,6 +319,9 @@ class WhoopBleClient(
         private const val TAG = "WhoopBleClient"
         /** Cap on the in-app strap-log ring buffer (for the "Share strap log" diagnostics export). */
         private const val LOG_BUFFER_MAX = 2000
+        /** Applied at export time to strip device-identifying strings. The ring buffer stays raw. */
+        private val REDACT_MAC = Regex("[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}")
+        private val REDACT_WHOOP_SERIAL = Regex("WHOOP [A-Za-z0-9]{5,}")
 
         /**
          * Fallback device id when the registry has no active device yet (fresh install before the v8
@@ -3352,6 +3355,15 @@ class WhoopBleClient(
      */
     fun externalLog(s: String) { log(s) }
 
-    /** Snapshot of the recent strap log, newest last, for the "Share strap log" diagnostics export. */
-    fun exportLogText(): String = synchronized(logBuffer) { logBuffer.joinToString("\n") }
+    /**
+     * Snapshot of the recent strap log, newest last, for the "Share strap log" diagnostics export.
+     * BLE MAC addresses and WHOOP serials embedded in advertised names are masked before the text
+     * leaves the device so the log is safe to share publicly. The on-device ring buffer stays raw.
+     */
+    fun exportLogText(): String = synchronized(logBuffer) {
+        REDACT_WHOOP_SERIAL.replace(
+            REDACT_MAC.replace(logBuffer.joinToString("\n"), "XX:XX:XX:XX:XX:XX"),
+            "WHOOP [redacted]",
+        )
+    }
 }

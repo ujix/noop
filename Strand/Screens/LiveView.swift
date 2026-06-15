@@ -937,6 +937,24 @@ struct LiveView: View {
 
     // MARK: - Strap-log export (issue #17 — let macOS users share the log for bug reports)
 
+    /// Masks device-identifying strings so the exported log is safe to share publicly.
+    /// The on-device ring buffer is left raw; masking only happens at the copy/save boundary.
+    private static func redactForExport(_ text: String) -> String {
+        var s = text
+        // BLE MAC address: AA:BB:CC:DD:EE:FF
+        s = s.replacingOccurrences(of: "[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}",
+                                   with: "XX:XX:XX:XX:XX:XX", options: .regularExpression)
+        // WHOOP serial embedded in the advertised name (≥5 consecutive alphanumeric chars after "WHOOP ").
+        // Skips generic model names like "4.0", "MG", "5.0" (≤3 chars / contain dots).
+        s = s.replacingOccurrences(of: "WHOOP [A-Za-z0-9]{5,}",
+                                   with: "WHOOP [redacted]", options: .regularExpression)
+        // iOS/macOS peripheral UUID (e.g. "12345678-1234-1234-1234-123456789012")
+        s = s.replacingOccurrences(
+            of: "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
+            with: "[ID redacted]", options: .regularExpression)
+        return s
+    }
+
     private func strapLogText() -> String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
@@ -956,7 +974,7 @@ struct LiveView: View {
         }
         #endif
         header += String(repeating: "-", count: 40) + "\n"
-        return header + live.log.joined(separator: "\n")
+        return header + Self.redactForExport(live.log.joined(separator: "\n"))
     }
 
     private func copyStrapLog() {
