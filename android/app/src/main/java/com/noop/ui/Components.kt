@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -902,6 +905,44 @@ fun ScreenScaffold(
             Text(title, style = NoopType.title1, color = Palette.textPrimary)
             if (subtitle != null) {
                 Text(subtitle, style = NoopType.subhead, color = Palette.textSecondary)
+            }
+        }
+        content()
+    }
+}
+
+// MARK: - LazyScreenScaffold
+//
+// A lazy twin of [ScreenScaffold] for screens whose content ends in a long list. The
+// eager [ScreenScaffold] above builds every child up-front; with an 800+ day imported
+// history that froze the app (and tripped Android's "close unresponsive app?" prompt)
+// when Intelligence "ALL" was tapped (#345). LazyColumn builds only the rows on screen.
+//
+// The content slot is a [LazyListScope] (item { } / items(...)) rather than a ColumnScope,
+// so callers stay explicit about what is a one-off header vs the lazily-built list — and
+// every existing ScreenScaffold caller is untouched. The header, 28dp screen padding and
+// 20dp inter-item spacing match ScreenScaffold so the two read identically.
+
+@Composable
+fun LazyScreenScaffold(
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+    content: LazyListScope.() -> Unit,
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Palette.surfaceBase),
+        contentPadding = PaddingValues(28.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = NoopType.title1, color = Palette.textPrimary)
+                if (subtitle != null) {
+                    Text(subtitle, style = NoopType.subhead, color = Palette.textSecondary)
+                }
             }
         }
         content()

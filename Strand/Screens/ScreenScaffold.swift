@@ -9,6 +9,12 @@ struct ScreenScaffold<Content: View>: View {
     /// (the standard iPhone gesture for a data dashboard). Defaults to nil so callers that
     /// don't opt in are unaffected — and on macOS `.refreshable` surfaces no affordance.
     var onRefresh: (() async -> Void)? = nil
+    /// Lazily materialise the content column. When `true` the inner stack is a `LazyVStack`,
+    /// so a screen whose content ends in a long `ForEach` only builds the cards on screen
+    /// rather than all of them up-front — the fix for Intelligence "ALL" freezing on an
+    /// 800+ day imported history (#345). Defaults to `false` so every existing caller keeps
+    /// the eager `VStack` and its identical layout/scroll behaviour.
+    var lazy: Bool = false
     @ViewBuilder var content: () -> Content
 
     // iPad runs the shared screens full-screen, where an uncapped column gives 120+ character lines
@@ -21,15 +27,7 @@ struct ScreenScaffold<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
-                    if let subtitle {
-                        Text(subtitle).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                    }
-                }
-                content()
-            }
+            column
             .padding(28)
             #if os(iOS)
             // The tab bar floats over the scroll content, so the last card sat hidden behind it.
@@ -46,6 +44,33 @@ struct ScreenScaffold<Content: View>: View {
         }
         .background(StrandPalette.surfaceBase)
         .modifier(RefreshableIfNeeded(onRefresh: onRefresh))
+    }
+
+    /// The header + content column. `lazy` swaps the eager `VStack` for a `LazyVStack` so a long
+    /// trailing `ForEach` (Intelligence "ALL") builds cards on demand instead of all at once. The
+    /// alignment/spacing/header are identical in both branches, so the non-lazy path is byte-for-byte
+    /// the previous layout. `@ViewBuilder` lets the two stack types resolve to one opaque return.
+    @ViewBuilder private var column: some View {
+        if lazy {
+            LazyVStack(alignment: .leading, spacing: 20) {
+                header
+                content()
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                content()
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
+            if let subtitle {
+                Text(subtitle).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+            }
+        }
     }
 }
 

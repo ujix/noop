@@ -180,7 +180,12 @@ struct AppleHealthView: View {
                 // manual .zip export.
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                     liveSyncCard
-                    ComingSoon(what: "Nothing here yet. Tap Enable Apple Health above to read your data live, or import a Health export .zip in Data Sources.")
+                    // #348 — when the build can't carry the HealthKit entitlement there's no "Enable"
+                    // button to tap, so the empty-state copy must point at the file/Shortcuts path
+                    // instead of telling the user to tap a control that isn't shown.
+                    ComingSoon(what: health.auth == .entitlementMissing
+                               ? "Nothing here yet. This sideloaded install can't read Apple Health directly — import a Health export .zip in Data Sources, or turn on Shortcuts Export to bring your strap data into Health."
+                               : "Nothing here yet. Tap Enable Apple Health above to read your data live, or import a Health export .zip in Data Sources.")
                 }
                 #else
                 ComingSoon(what: "Nothing imported yet. On an iPhone: Health app, tap your photo, Export All Health Data, then import the .zip here in Data Sources.")
@@ -359,6 +364,21 @@ struct AppleHealthView: View {
                     Text("Apple Health isn't available on \(Platform.deviceNounPhrase).")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                case .entitlementMissing:
+                    // #348 — a free-signed sideload (AltStore / Sideloadly / free Apple ID) was re-signed
+                    // WITHOUT the HealthKit entitlement, so "Enable Apple Health" can never work and the
+                    // app can never appear under Settings › Health › Data Access & Devices. Give the
+                    // honest path instead of impossible Settings instructions: bring data in via a file
+                    // import or the HealthKit-free Shortcuts export.
+                    Text("This install can't connect to Apple Health directly. It was sideloaded with a free signing profile, which doesn't include Apple's Health permission — so there's nothing to enable, and NOOP won't appear under Settings › Health.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("To get your Apple Health data in anyway: import a Health export .zip in Data Sources, or turn on Shortcuts Export to feed your strap data into Health without the entitlement. (A build installed from the App Store or signed with a paid Apple Developer account connects directly.)")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
 
                 case .unknown, .denied:

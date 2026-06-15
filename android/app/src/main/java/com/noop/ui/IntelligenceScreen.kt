@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -74,60 +75,75 @@ fun IntelligenceScreen(vm: AppViewModel) {
         )
     }
 
-    ScreenScaffold(
+    // Range + filtered day list are hoisted ABOVE the lazy scaffold: these are @Composable
+    // state hooks (remember), which can't run inside the LazyListScope content lambda. The
+    // filtering is a cheap in-memory predicate; the freeze (#345) was the eager BUILDING of
+    // 800+ day cards, which the LazyColumn below now defers to what's on screen.
+    var range by remember { mutableStateOf(IntelRange.Month) }
+    val filtered = remember(ordered, range) {
+        val n = range.days ?: return@remember ordered
+        val cutoff = LocalDate.now().minusDays((n - 1).toLong()).toString()
+        ordered.filter { it.day >= cutoff }
+    }
+
+    LazyScreenScaffold(
         title = "Intelligence",
         subtitle = "Charge, effort and rest — scored with the model, explained in plain terms.",
     ) {
-        forecast?.let { ForecastCard(it) }
-        ExplainerCard(effortScale)
-        ModelBreakdownCard(effortScale)
+        item { forecast?.let { ForecastCard(it) } }
+        item { ExplainerCard(effortScale) }
+        item { ModelBreakdownCard(effortScale) }
 
         if (ordered.isEmpty()) {
-            // While the strap is mid-offload, say so — an empty list reads as final otherwise (#77).
-            if (live.backfilling) SyncingHistoryNote(chunks = live.syncChunksThisSession)
-            EmptyNote()
+            item {
+                // While the strap is mid-offload, say so — an empty list reads as final otherwise (#77).
+                if (live.backfilling) SyncingHistoryNote(chunks = live.syncChunksThisSession)
+                EmptyNote()
+            }
         } else {
-            var range by remember { mutableStateOf(IntelRange.Month) }
-            val filtered = remember(ordered, range) {
-                val n = range.days ?: return@remember ordered
-                val cutoff = LocalDate.now().minusDays((n - 1).toLong()).toString()
-                ordered.filter { it.day >= cutoff }
-            }
-
-            // Header row: section label left, range control right. Lets you narrow the
-            // per-day list to a recent window (lexicographic YYYY-MM-DD compare == chronological).
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Metrics.gap),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Overline("Recent")
-                    Text("By Day", style = NoopType.title2, color = Palette.textPrimary)
-                }
-                SegmentedPillControl(
-                    items = IntelRange.entries.toList(),
-                    selection = range,
-                    label = { it.label },
-                    onSelect = { range = it },
-                )
-            }
-            Text(
-                "${filtered.size} ${if (filtered.size == 1) "day" else "days"}",
-                style = NoopType.footnote,
-                color = Palette.textTertiary,
-            )
-
-            if (filtered.isEmpty()) {
-                NoopCard(padding = 18.dp) {
-                    Text(
-                        "No scored days in this window. Widen the range or import more history.",
-                        style = NoopType.subhead,
-                        color = Palette.textSecondary,
+            item {
+                // Header row: section label left, range control right. Lets you narrow the
+                // per-day list to a recent window (lexicographic YYYY-MM-DD compare == chronological).
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Metrics.gap),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Overline("Recent")
+                        Text("By Day", style = NoopType.title2, color = Palette.textPrimary)
+                    }
+                    SegmentedPillControl(
+                        items = IntelRange.entries.toList(),
+                        selection = range,
+                        label = { it.label },
+                        onSelect = { range = it },
                     )
                 }
+            }
+            item {
+                Text(
+                    "${filtered.size} ${if (filtered.size == 1) "day" else "days"}",
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                )
+            }
+
+            if (filtered.isEmpty()) {
+                item {
+                    NoopCard(padding = 18.dp) {
+                        Text(
+                            "No scored days in this window. Widen the range or import more history.",
+                            style = NoopType.subhead,
+                            color = Palette.textSecondary,
+                        )
+                    }
+                }
             } else {
-                filtered.forEach { day -> DayCard(day, effortScale) }
+                // The lazily-built day list — only the visible cards are composed, so even an
+                // 800+ day "ALL" range no longer blocks the main thread. Keyed by day so scroll
+                // position and recomposition stay stable as the range changes.
+                items(filtered, key = { it.day }) { day -> DayCard(day, effortScale) }
             }
         }
     }

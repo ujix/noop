@@ -133,8 +133,9 @@ class ProfileStore(private val prefs: SharedPreferences) {
         set(v) = prefs.edit().putInt(KEY_HRMAX, v.coerceIn(0, 230)).apply()
 
     /**
-     * Step-calibration divisor (#139): counter ticks per real step for the @57 motion
-     * counter. 1.0 = raw pass-through (default — no behavior change). Clamped 0.5–4.0.
+     * Step-calibration divisor (#139/#132): counter ticks per real step for the @57 motion
+     * counter. 1.0 = raw pass-through (default — no behavior change). Clamped 0.5–30.0
+     * (WHOOP 5/MG motion-counter overcount can reach ~24×, so the ceiling has to be high).
      */
     var stepTicksPerStep: Double
         get() = prefs.getFloat(KEY_STEP_SCALE, 1f).toDouble().coerceIn(STEP_SCALE_MIN, STEP_SCALE_MAX)
@@ -164,7 +165,33 @@ class ProfileStore(private val prefs: SharedPreferences) {
         private const val HEIGHT_MIN = 120.0
         private const val HEIGHT_MAX = 230.0
         private const val STEP_SCALE_MIN = 0.5
-        private const val STEP_SCALE_MAX = 4.0
+        private const val STEP_SCALE_MAX = 30.0
+
+        /**
+         * Variable step for the calibration stepper so high values stay reachable: fine near the
+         * 1.0 default (where most people land), coarse up at the 20s+ a 5/MG needs. A flat 0.1 step
+         * from 0.5 to 30 would be ~295 taps — unusable. Mirrors macOS `ProfileStore.stepScaleIncrement`.
+         *  - `< 2.0` → 0.1   (precision around the default)
+         *  - `2.0–5.0` → 0.5
+         *  - `>= 5.0` → 1.0   (ballpark the ~24× overcount in ~19 taps)
+         */
+        fun stepScaleIncrement(value: Double): Double = when {
+            value < 2.0 -> 0.1
+            value < 5.0 -> 0.5
+            else -> 1.0
+        }
+
+        /**
+         * One increment/decrement of the calibration divisor, snapped to the increment grid and
+         * clamped to [STEP_SCALE_MIN]..[STEP_SCALE_MAX]. Decrement uses the increment for the
+         * *target* band so the up/down sequence is symmetric at band boundaries (e.g. 5.0 −1 → 4.0,
+         * 4.0 +0.5 → 4.5). Mirrors macOS `ProfileStore.steppedStepScale`.
+         */
+        fun steppedStepScale(value: Double, up: Boolean): Double {
+            val delta = if (up) stepScaleIncrement(value) else stepScaleIncrement(value - 0.0001)
+            val next = Math.round((value + if (up) delta else -delta) / delta) * delta
+            return next.coerceIn(STEP_SCALE_MIN, STEP_SCALE_MAX)
+        }
 
         fun from(context: Context): ProfileStore =
             ProfileStore(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
@@ -413,19 +440,21 @@ fun SettingsScreen(vm: AppViewModel) {
                     }
                 }
                 RowDivider()
-                // Step calibration (#139): daily steps = @57 counter ticks ÷ this divisor.
-                // 1.0 = raw pass-through until the true 5/MG tick rate is known.
+                // Step calibration (#139/#132): daily steps = @57 counter ticks ÷ this divisor.
+                // 1.0 = raw pass-through until the true 5/MG tick rate is known. The divisor goes
+                // up to 30 because a 5/MG motion counter can overcount by ~24×; the stepper uses a
+                // variable increment (fine near 1.0, coarse up top) so high values stay reachable.
                 FormRow(label = "Step calibration") {
                     StepperField(
                         value = "%.1f".format(profile.stepTicksPerStep),
                         accessibility = "Step calibration, %.1f counter ticks per step"
                             .format(profile.stepTicksPerStep),
-                        onMinus = { mutate { profile.stepTicksPerStep -= 0.1 } },
-                        onPlus = { mutate { profile.stepTicksPerStep += 0.1 } },
+                        onMinus = { mutate { profile.stepTicksPerStep = ProfileStore.steppedStepScale(profile.stepTicksPerStep, up = false) } },
+                        onPlus = { mutate { profile.stepTicksPerStep = ProfileStore.steppedStepScale(profile.stepTicksPerStep, up = true) } },
                     )
                 }
                 Text(
-                    "Counter ticks per step — leave at 1.0 unless your steps run high. Walk a known 1,000 steps and divide NOOP's count by the real count to get your value.",
+                    "Counter ticks per step — leave at 1.0 unless your steps run high. On a WHOOP 5/MG they can run very high (10× or more), so this goes up to 30. Walk a known 1,000 steps and divide NOOP's count by the real count to get your value.",
                     style = NoopType.footnote,
                     color = Palette.textTertiary,
                 )

@@ -21,11 +21,12 @@ import java.io.FileOutputStream
  *   {"capturedAtMs":<Long>,"trim":<Long>,"family":"whoop4"|"whoop5","frameHex":"<hex>"}
  * Each [append] flushes + fsyncs before returning, so a row is durable before the caller acks.
  *
- * Size cap ([maxBytes], ~5 MB): once the file reaches the cap, [append] does NOT write the frames but
- * still returns a SUCCESS result with [AppendResult.written] = false. That is deliberate — wedging the
- * whole offload on a full archive would be worse than dropping the newest few rejects, and by the time
- * 5 MB of rejects exist there is ample sample material to map the layout. The caller records the
- * not-written frames separately so the sync status never falsely claims they were preserved.
+ * Size cap ([maxBytes], ~5 MB): if appending would push the file past the cap, [append] EVICTS oldest
+ * surplus lines to make room rather than refusing the write — but only down to a per-version retention
+ * floor ([PER_VERSION_FLOOR]), so a brand-new layout version is never binned merely because common
+ * versions filled the file. Only when the incoming frames alone can't fit even an empty archive does
+ * [append] skip them ([AppendResult.written] = false); the caller records those as unarchived so the
+ * sync status never falsely claims they were preserved. (#344)
  *
  * A genuine WRITE FAILURE (I/O error) instead throws — the caller treats that as "do NOT ack", so the
  * strap keeps the records and re-sends them on the next offload. No data is lost either way.
@@ -33,6 +34,8 @@ import java.io.FileOutputStream
 class RawHistoryArchive(
     private val context: Context,
     private val maxBytes: Long = REJECTED_ARCHIVE_MAX_BYTES,
+    // Overridable so tests can drive eviction with a small archive instead of 5 MB of frames. (#344)
+    private val perVersionFloor: Int = PER_VERSION_FLOOR,
 ) {
     /**
      * Outcome of an [append]. [ok] is true whenever the offload may proceed to ack; [written] is true
@@ -56,22 +59,44 @@ class RawHistoryArchive(
         if (frames.isEmpty()) return AppendResult(ok = true, written = false)
 
         val f = file
-        // Cap reached: succeed WITHOUT writing so a full archive can't wedge the offload. The caller
-        // tracks these as unarchived so the status stays honest.
-        if (f.length() >= maxBytes) return AppendResult(ok = true, written = false)
-
         val familyTag = familyTag(family)
         val now = System.currentTimeMillis()
-        // FileOutputStream in append mode; fsync the descriptor so the rows are durable BEFORE the ack
-        // (the whole point of the archive). A throw here propagates → caller holds the ack.
-        FileOutputStream(f, true).use { out ->
-            val sb = StringBuilder()
-            for (frame in frames) {
-                sb.append(encodeLine(now, trim, familyTag, frame)).append('\n')
+
+        // Build the new JSONL lines (each newline-terminated). The version that drives floor-aware
+        // retention (#344) is re-derived per line from the stored frame inside [evictLines].
+        val newLines = frames.map { frame -> encodeLine(now, trim, familyTag, frame) + "\n" }
+        val incomingBytes = newLines.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
+
+        // Fast path: it all fits — plain append, fsync BEFORE returning (the point of the archive).
+        if (f.length() + incomingBytes <= maxBytes) {
+            FileOutputStream(f, true).use { out ->
+                out.write(newLines.joinToString("").toByteArray(Charsets.UTF_8))
+                out.flush()
+                out.fd.sync()
             }
-            out.write(sb.toString().toByteArray(Charsets.UTF_8))
+            return AppendResult(ok = true, written = true)
+        }
+
+        // The incoming batch alone can't fit even an empty archive: nothing we can evict makes room,
+        // so skip it (the offload may still ack — there is ample sample material by now). Preserves
+        // the prior cap contract for this degenerate case.
+        if (incomingBytes > maxBytes) return AppendResult(ok = true, written = false)
+
+        // Over cap: rewrite with floor-aware eviction. Read existing lines (oldest first), append the
+        // new lines (which sort newest), drop oldest surplus until we fit — never dropping a line within
+        // the newest [PER_VERSION_FLOOR] of its version. Atomic rewrite (temp file + rename) so the
+        // archive is durable BEFORE the ack. [evictLines] is the pure, unit-tested core.
+        val existing = if (f.exists()) f.readLines().filter { it.isNotEmpty() }.map { "$it\n" } else emptyList()
+        val kept = evictLines(existing + newLines, maxBytes, perVersionFloor)
+        val tmp = File(context.filesDir, "$REJECTED_ARCHIVE_FILE.tmp")
+        FileOutputStream(tmp).use { out ->
+            out.write(kept.joinToString("").toByteArray(Charsets.UTF_8))
             out.flush()
             out.fd.sync()
+        }
+        if (!tmp.renameTo(f)) {
+            tmp.delete()
+            throw java.io.IOException("reject-archive atomic rewrite failed (rename)")
         }
         return AppendResult(ok = true, written = true)
     }
@@ -138,8 +163,78 @@ class RawHistoryArchive(
         /** Archive filename in the app-private filesDir. */
         const val REJECTED_ARCHIVE_FILE = "rejected_history.jsonl"
 
-        /** ~5 MB cap; above this [append] reports success without writing (frames tracked as unarchived). */
+        /** ~5 MB cap; above this [append] evicts oldest surplus (floor-aware) to make room (#344). */
         const val REJECTED_ARCHIVE_MAX_BYTES = 5L * 1024 * 1024
+
+        /**
+         * Per distinct layout VERSION, keep at least this many of the newest archived lines, immune to
+         * cap eviction. A never-seen version (WHOOP 4 v19, WHOOP 5 v20/v21 — `frame[5]` / `frame[9]`,
+         * the hist_version byte) emits only a handful of frames, so this floor guarantees those rare
+         * samples survive while the most-populous versions shed their oldest surplus. Bounded: the floor
+         * holds at most floor x distinctVersions lines, a tiny set. Mirrors the macOS RawHistoryArchive
+         * perVersionFloor. (#344)
+         */
+        const val PER_VERSION_FLOOR = 64
+
+        /**
+         * The hist_version byte distinguishing one historical layout from another: `frame[5]` on WHOOP
+         * 4, `frame[9]` on WHOOP 5/MG (the puffin envelope is 4 bytes longer). Same indices the reject
+         * filter uses. Frames too short to carry it fall back to a sentinel so they still form a bucket.
+         */
+        fun versionByte(frame: ByteArray, family: DeviceFamily): Int {
+            val idx = if (family == DeviceFamily.WHOOP5) 9 else 5
+            return if (frame.size > idx) frame[idx].toInt() and 0xFF else -1
+        }
+
+        /**
+         * A per-version retention key. Family is part of the key so a WHOOP 4 v18 and a WHOOP 5 v18 are
+         * kept as distinct buckets (their layouts differ despite the shared version number).
+         */
+        private data class VersionKey(val family: String, val version: Int)
+
+        /**
+         * The [VersionKey] of one archived JSONL line, re-derived from its stored frame + family; null
+         * for a malformed line (which then gets NO retention floor — it is evicted before any real,
+         * floor-protected line, so garbage can never occupy a slot a real rare version could use).
+         */
+        private fun lineVersionKey(line: String): VersionKey? {
+            val parsed = parseArchiveLine(line) ?: return null
+            val tag = if (parsed.second == DeviceFamily.WHOOP5) "whoop5" else "whoop4"
+            return VersionKey(tag, versionByte(parsed.first, parsed.second))
+        }
+
+        /**
+         * Floor-aware cap eviction (#344), PURE so it is JVM-unit-testable without a Context. [lines] is
+         * the full newline-terminated JSONL set, oldest-first (existing ++ incoming). Drops oldest
+         * SURPLUS lines until the UTF-8 byte total fits [maxBytes], but NEVER a line within the newest
+         * [floor] lines of its version — so a rare never-seen layout (WHOOP 4 v19, WHOOP 5 v20/v21)
+         * always survives even when common versions fill the archive. Bounded: if everything left is
+         * floor-protected it stops even if still over cap (the floor wins — floor x distinctVersions is
+         * tiny). Mirrors the macOS RawHistoryArchive.evictLines.
+         */
+        fun evictLines(lines: List<String>, maxBytes: Long, floor: Int): List<String> {
+            // Mark the newest [floor] indices of each version as protected (scan newest -> oldest).
+            // Malformed lines (null key) are never protected — evicted before any real, floor-kept line.
+            val keys = lines.map { lineVersionKey(it) }
+            val protectedIdx = HashSet<Int>()
+            val seen = HashMap<VersionKey, Int>()
+            for (idx in lines.indices.reversed()) {
+                val k = keys[idx] ?: continue
+                val c = seen[k] ?: 0
+                if (c < floor) { protectedIdx.add(idx); seen[k] = c + 1 }
+            }
+            var total = lines.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
+            if (total <= maxBytes) return lines
+            // Evict oldest unprotected lines first.
+            val dropped = HashSet<Int>()
+            for (idx in lines.indices) {                       // ascending = oldest first
+                if (total <= maxBytes) break
+                if (idx in protectedIdx) continue
+                dropped.add(idx)
+                total -= lines[idx].toByteArray(Charsets.UTF_8).size.toLong()
+            }
+            return lines.filterIndexed { idx, _ -> idx !in dropped }
+        }
 
         /** Where the once-per-app-version replay marker lives. */
         const val REPLAY_PREFS = "noop_reject_replay"

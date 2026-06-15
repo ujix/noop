@@ -17,6 +17,15 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 3.7.0 — A round of fixes: steps, Insights & Health setup
+
+- **Step calibration goes further (#132):** on a WHOOP 5/MG the strap's motion counter can over-report steps by 20× or more, and the per-user calibration divider used to stop at 4×. It now goes all the way to **30×**, and the +/− control uses a variable increment (fine around the 1.0 default, coarser up in the 20s) so a large correction takes a few taps instead of dozens. Floor stays 0.5×; same on iPhone, Mac and Android. Thanks @exzanimo.
+- **Insights “By Day” stays smooth with a large history (#345):** tapping **All** with a big imported history used to build every day card up-front, which could freeze the app (and trip Android's "close the app?" prompt). The day list now renders lazily — only what's on screen — so it scrolls smoothly regardless of how many days you've imported. Small histories are byte-for-byte unchanged. (No data was ever at risk during the old freeze — that screen only reads already-stored days.) Thanks @maddognik. While here, the Stress maths were re-checked end to end: the daily monitor (today vs your 30-day baseline) and the intraday timeline (each hour vs that day's calm hours) are deliberately different references, so they read differently — no calculation bug.
+- **Honest Apple Health guidance on free sideloads (iPhone, #348):** a build installed with a free Apple ID (AltStore / Sideloadly) is re-signed without Apple's HealthKit entitlement, so it can never appear under Settings › Health › Data Access & Devices. NOOP now detects that and stops giving the impossible instruction — it explains the limitation plainly and routes you to the file-import / Shortcuts path instead. Properly-signed installs behave exactly as before. Thanks @exzanimo.
+- **Better odds of unlocking newer straps (#344):** the on-device archive that collects undecoded history frames (the raw material for reverse-engineering new firmware layouts) had a size cap that, once full, dropped new frames indiscriminately — so a rare never-seen layout could be evicted by common ones. It now keeps a guaranteed floor of samples **per distinct layout version**, so a brand-new version (WHOOP 4.0 v19, 5/MG v20/v21) survives until we can study it. Thanks @airtonzanon and everyone sending strap logs.
+
+---
+
 ## 3.6.0 — A fresh look (new gold-on-navy icon) + Android sleep durability
 
 - **New app icon, everywhere:** a bolder Titanium & Gold mark — a **thick gold recovery ring + core on deep navy** — replacing the machined-titanium tile across iPhone, Mac and Android launchers, the in-app `BrandMark`, and the README logo. Generated from `Tools/make_icon.py` (gold ramp `#FCEBA8 → #E8B84B → #C8902F` on navy `#070C16`).

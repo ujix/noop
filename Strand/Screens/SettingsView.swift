@@ -190,21 +190,26 @@ struct SettingsView: View {
                     }
                 }
                 rowDivider
-                // Step calibration (#139): daily steps = @57 counter ticks ÷ this divisor.
-                // 1.0 = raw pass-through until the true 5/MG tick rate is known.
+                // Step calibration (#139/#132): daily steps = @57 counter ticks ÷ this divisor.
+                // 1.0 = raw pass-through until the true 5/MG tick rate is known. The divisor goes
+                // up to 30 because a 5/MG motion counter can overcount by ~24×; the stepper uses a
+                // variable increment (fine near 1.0, coarse up top) so high values stay reachable.
                 FormRow(label: "Step calibration") {
                     HStack(spacing: 10) {
                         Text(String(format: "%.1f", profile.stepTicksPerStep))
                             .font(StrandFont.bodyNumber)
                             .foregroundStyle(StrandPalette.textPrimary)
                             .frame(minWidth: 44, alignment: .trailing)
-                        Stepper("Step calibration",
-                                value: $profile.stepTicksPerStep, in: 0.5...4.0, step: 0.1)
+                        Stepper("Step calibration") {
+                            profile.stepTicksPerStep = ProfileStore.steppedStepScale(profile.stepTicksPerStep, up: true)
+                        } onDecrement: {
+                            profile.stepTicksPerStep = ProfileStore.steppedStepScale(profile.stepTicksPerStep, up: false)
+                        }
                             .labelsHidden()
                             .accessibilityLabel("Step calibration, \(String(format: "%.1f", profile.stepTicksPerStep)) counter ticks per step")
                     }
                 }
-                Text("Counter ticks per step — leave at 1.0 unless your steps run high. Walk a known 1,000 steps and divide NOOP's count by the real count to get your value.")
+                Text("Counter ticks per step — leave at 1.0 unless your steps run high. On a WHOOP 5/MG they can run very high (10× or more), so this goes up to 30. Walk a known 1,000 steps and divide NOOP's count by the real count to get your value.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

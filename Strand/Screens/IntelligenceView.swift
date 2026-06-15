@@ -15,8 +15,12 @@ struct IntelligenceView: View {
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     var body: some View {
+        // `lazy` so the trailing By-Day `ForEach` renders day cards on demand. With an 800+ day
+        // imported history, an eager VStack built every card up-front on the main thread and froze
+        // the app when ALL was tapped (#345); LazyVStack only materialises what's on screen.
         ScreenScaffold(title: "Intelligence",
-                       subtitle: "NOOP scores your charge, effort and rest itself — on-device, no cloud.") {
+                       subtitle: "NOOP scores your charge, effort and rest itself — on-device, no cloud.",
+                       lazy: true) {
             if let f = forecast { forecastCard(f) }
             explainerCard
             if intelligence.computing {

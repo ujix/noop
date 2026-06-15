@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "3.6.0"
+    const val CURRENT_VERSION = "3.7.0"
 
     data class Release(
         val version: String,
@@ -36,6 +36,17 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "3.7.0",
+            title = "A round of fixes — steps, Insights & Health setup",
+            date = "June 2026",
+            items = listOf(
+                "Step calibration goes further: on a WHOOP 5/MG the strap's motion counter can over-report steps by 20x or more, and the calibration dial used to stop at 4x. It now goes all the way to 30x, and the +/- control takes bigger jumps the higher you go — so you can dial in a large correction in a few taps. Thanks @exzanimo (#132).",
+                "Insights “By Day” stays smooth with years of history: tapping All with a big imported history used to build every day at once and could freeze the app. The list now renders only what's on screen, so it scrolls smoothly no matter how many days you've imported. Thanks @maddognik (#345).",
+                "Honest Apple Health guidance on free sideloads (iPhone): if you installed NOOP with a free Apple ID (AltStore / Sideloadly), the build can't be granted Apple Health access — so instead of pointing you to a Settings screen NOOP can never appear in, it now tells you straight and routes you to the file-import / Shortcuts path. Thanks @exzanimo (#348).",
+                "Better odds of unlocking newer straps: the on-device archive that collects undecoded history frames (so new firmware layouts can be reverse-engineered) now keeps a guaranteed sample of each distinct layout version, so a rare new one — WHOOP 4.0 v19, 5/MG v20/v21 — can't be crowded out before we can study it. Thanks @airtonzanon and everyone sending logs (#344).",
+            ),
+        ),
         Release(
             version = "3.6.0",
             title = "A fresh look — new gold-on-navy icon",

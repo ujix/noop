@@ -11,10 +11,11 @@ final class ProfileStore: ObservableObject {
     @Published var heightCm: Double { didSet { d.set(heightCm, forKey: K.height) } }
     /// 0 = auto-estimate from age.
     @Published var hrMaxOverride: Int { didSet { d.set(hrMaxOverride, forKey: K.hrMax) } }
-    /// Step-calibration divisor (#139): counter ticks per real step for the @57 motion
-    /// counter. 1.0 = raw pass-through (default — no behavior change). Clamped 0.5–4.0.
+    /// Step-calibration divisor (#139/#132): counter ticks per real step for the @57 motion
+    /// counter. 1.0 = raw pass-through (default — no behavior change). Clamped 0.5–30.0
+    /// (WHOOP 5/MG motion-counter overcount can reach ~24×, so the ceiling has to be high).
     @Published var stepTicksPerStep: Double {
-        didSet { d.set(min(max(stepTicksPerStep, 0.5), 4.0), forKey: K.stepScale) }
+        didSet { d.set(min(max(stepTicksPerStep, 0.5), 30.0), forKey: K.stepScale) }
     }
 
     private let d = UserDefaults.standard
@@ -30,9 +31,37 @@ final class ProfileStore: ObservableObject {
         weightKg = d.object(forKey: K.weight) as? Double ?? 75
         heightCm = d.object(forKey: K.height) as? Double ?? 178
         hrMaxOverride = d.object(forKey: K.hrMax) as? Int ?? 0
-        stepTicksPerStep = min(max(d.object(forKey: K.stepScale) as? Double ?? 1.0, 0.5), 4.0)
+        stepTicksPerStep = min(max(d.object(forKey: K.stepScale) as? Double ?? 1.0, 0.5), 30.0)
     }
 
     /// Tanaka estimate unless overridden.
     var hrMax: Int { hrMaxOverride > 0 ? hrMaxOverride : Int((208 - 0.7 * Double(age)).rounded()) }
+
+    /// Allowed range for the step-calibration divisor (#132). 5/MG straps overcount by
+    /// up to ~24×, so the old 4.0 ceiling could never reach the truth.
+    static let stepScaleRange: ClosedRange<Double> = 0.5...30.0
+
+    /// Variable step for the calibration stepper so high values stay reachable: fine near
+    /// the 1.0 default (where most people land), coarse up at the 20s+ a 5/MG needs. A flat
+    /// 0.1 step from 0.5 to 30 would be ~295 taps — unusable.
+    /// - `< 2.0` → 0.1   (precision around the default)
+    /// - `2.0–5.0` → 0.5
+    /// - `≥ 5.0` → 1.0   (ballpark the ~24× overcount in ~19 taps)
+    static func stepScaleIncrement(for value: Double) -> Double {
+        switch value {
+        case ..<2.0: return 0.1
+        case ..<5.0: return 0.5
+        default: return 1.0
+        }
+    }
+
+    /// One increment/decrement of the calibration divisor, snapped to the increment grid and
+    /// clamped to ``stepScaleRange``. Decrement uses the increment for the *target* band so the
+    /// up/down sequence is symmetric at the band boundaries (e.g. 5.0 −1 → 4.0, 4.0 +0.5 → 4.5).
+    static func steppedStepScale(_ value: Double, up: Bool) -> Double {
+        let delta = up ? stepScaleIncrement(for: value)
+                       : stepScaleIncrement(for: value - 0.0001)
+        let next = ((value + (up ? delta : -delta)) / delta).rounded() * delta
+        return min(max(next, stepScaleRange.lowerBound), stepScaleRange.upperBound)
+    }
 }
