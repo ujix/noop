@@ -2020,7 +2020,11 @@ internal fun parsePersistedSegments(json: String?): List<PersistedSegment>? {
  */
 @Composable
 internal fun HoursVsNeededCard(m: SleepModel) {
-    val sleptH = (m.stages.asleep / 60.0)
+    // trendHours.last() reflects metricsWindow which substitutes sessionDurationMin (the
+    // edited endTs − startTs) for totalSleepMin — so a wake-time edit updates this value
+    // immediately. stages.asleep stays stale for imported nights: reclipMinutes adds extra
+    // time as awake (not sleep stages), leaving light+deep+rem — and therefore asleep — unchanged.
+    val sleptH = m.trendHours.lastOrNull() ?: (m.stages.asleep / 60.0)
     val neededH = (m.trendNeedHours.lastOrNull() ?: 8.0)
     val debtH = m.trendDebtHours.lastOrNull() ?: 0.0
     val score = (sleptH / neededH * 100.0).coerceIn(0.0, 100.0)
