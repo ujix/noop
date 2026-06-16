@@ -17,6 +17,10 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 4.3.2 — Light theme tuning (all platforms)
+
+- **Light got dialled in, from early feedback that it leaned too gold.** The *chrome* — links, the selected range pill, header accents — now uses the deep brand **blue** on Light, with **gold reserved for what it means** (the Charge/recovery rings and the action button). Cards sit on a slightly **deeper warm canvas with a stronger drop shadow**, so they stand out more clearly. On **macOS**, a sidebar glitch where the NOOP lockup overlapped the navigation list is fixed (it's now a proper fixed header above the list). **Dark is unchanged.**
+
 ## 4.3.1 — Light theme polish (all platforms)
 
 - **A theme audit caught a handful of details that were tuned for dark and read faintly (or invisibly) on the new Light theme** — a few chart/gauge end-cap dots (the white core vanished against the white card), a secondary-button outline, and a tooltip shadow. They now flip to the right ink/shadow on Light via the same dynamic tokens. **Dark is unaffected.** If you tried Light in 4.3.0 and saw a missing dot at the end of a graph line, this fixes it.

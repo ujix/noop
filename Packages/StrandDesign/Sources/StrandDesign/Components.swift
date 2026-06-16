@@ -280,6 +280,7 @@ public struct SegmentedPillControl<T: Hashable>: View {
     let items: [T]
     let label: (T) -> String
     @Binding var selection: T
+    @Environment(\.colorScheme) private var scheme
     public init(_ items: [T], selection: Binding<T>, label: @escaping (T) -> String) {
         self.items = items; self._selection = selection; self.label = label
     }
@@ -294,15 +295,21 @@ public struct SegmentedPillControl<T: Hashable>: View {
                 } label: {
                     Text(label(item))
                         .font(StrandFont.captionNumber)
-                        // Active segment = gold-gradient pill + dark gold-deep ink; inactive
-                        // = tertiary text on the bare inset track.
-                        .foregroundStyle(sel ? StrandPalette.goldDeepText : StrandPalette.textTertiary)
+                        // Active segment is SELECTION CHROME, so it follows the accent: on dark a
+                        // gold-gradient pill with gold-deep ink; on light a flat blue accent pill with
+                        // white ink (so the light theme's selection matches its blue chrome, not gold).
+                        .foregroundStyle(sel ? (scheme == .light ? Color.white : StrandPalette.goldDeepText)
+                                             : StrandPalette.textTertiary)
                         .frame(minWidth: 32)
                         .padding(.vertical, 6).padding(.horizontal, 11)
                         .background(
                             Capsule(style: .continuous)
-                                .fill(sel ? AnyShapeStyle(LinearGradient(gradient: StrandPalette.goldGradient, startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(Color.clear))
-                                .shadow(color: sel ? StrandPalette.gold.opacity(0.4) : .clear, radius: sel ? 6 : 0, y: 1)
+                                .fill(sel ? (scheme == .light
+                                             ? AnyShapeStyle(StrandPalette.accent)
+                                             : AnyShapeStyle(LinearGradient(gradient: StrandPalette.goldGradient, startPoint: .top, endPoint: .bottom)))
+                                          : AnyShapeStyle(Color.clear))
+                                .shadow(color: sel ? (scheme == .light ? StrandPalette.accent.opacity(0.3) : StrandPalette.gold.opacity(0.4)) : .clear,
+                                        radius: sel ? 6 : 0, y: 1)
                         )
                         // On iOS guarantee the ≥44pt touch target (height only — width is
                         // already ≥54pt) without bloating the denser Mac control, then make

@@ -79,8 +79,8 @@ public struct FrostedCardSurface: View {
             // white cards off the warm-paper canvas with a soft resting drop shadow (the hairline alone
             // is too faint to separate white-on-paper). Hover deepens this further in StrandCardHover.
             .shadow(
-                color: scheme == .light ? Color(hex: "#1A2230").opacity(0.07) : .clear,
-                radius: scheme == .light ? 9 : 0,
+                color: scheme == .light ? Color(hex: "#1A2230").opacity(0.11) : .clear,
+                radius: scheme == .light ? 10 : 0,
                 x: 0, y: scheme == .light ? 3 : 0
             )
     }

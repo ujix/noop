@@ -97,6 +97,10 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
+                // Fixed brand header — a real row above the list, NOT a `.safeAreaInset`: a macOS
+                // `List(.sidebar)` doesn't inset its scroll content for a top safe-area inset, so the
+                // (transparent) lockup floated over the scrolling rows and overlapped "Intelligence".
+                brand
                 List(NavItem.allCases, selection: $selection) { item in
                     Label(item.titleKey, systemImage: item.icon)
                         .font(StrandFont.rounded(13, weight: .medium))
@@ -108,7 +112,6 @@ struct RootView: View {
                 SidebarStatus().padding(.horizontal, 14).padding(.vertical, 12)
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
-            .safeAreaInset(edge: .top) { brand }
         } detail: {
             detail
                 // Tab/section crossfade — README §Motion: "switching tabs uses a crossfade ~240ms",
@@ -142,7 +145,11 @@ struct RootView: View {
                 .foregroundStyle(StrandPalette.textPrimary)
             Spacer()
         }
-        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 6)
+        // Top padding clears the traffic-light controls (the window hides its title bar, so they sit
+        // over the sidebar's top edge); the lockup sits just below them.
+        .padding(.horizontal, 16).padding(.top, 30).padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(StrandPalette.surfaceBase)
     }
 
     @ViewBuilder private var detail: some View {

@@ -64,12 +64,12 @@ public enum StrandPalette {
 
     // MARK: Surfaces — deep navy canvas, tinted frosted cards
     // Background is a near-black navy (NOT pure black); cards float just above it.
-    public static let surfaceBase    = Color(light: "#F4F1EA", dark: "#070C16") // canvas: warm paper / deep navy
+    public static let surfaceBase    = Color(light: "#EAE3D4", dark: "#070C16") // canvas: warm paper / deep navy (deepened so white cards pop)
     public static let surfaceRaised  = Color(light: "#FFFFFF", dark: "#111B2A") // card fill: white / frosted navy
     public static let surfaceOverlay = Color(light: "#FFFFFF", dark: "#15243C") // popovers / sheets / tooltips
-    public static let surfaceInset   = Color(light: "#ECE7DC", dark: "#16202F") // wells / chart insets / segmented track
-    public static let hairline       = Color(light: "#E4DECF", dark: "#21304A") // soft 1px border
-    public static let hairlineStrong = Color(light: "#D2C9B6", dark: "#2E3C57") // hover / emphasis border
+    public static let surfaceInset   = Color(light: "#DFD8C8", dark: "#16202F") // wells / chart insets / segmented track
+    public static let hairline       = Color(light: "#D8D0BD", dark: "#21304A") // soft 1px border (stronger on light for card edges)
+    public static let hairlineStrong = Color(light: "#C7BCA4", dark: "#2E3C57") // hover / emphasis border
 
     // MARK: Text — deep navy-ink on paper / cool off-white on navy
     public static let textPrimary    = Color(light: "#1A2230", dark: "#F4F6F8")
@@ -79,12 +79,14 @@ public enum StrandPalette {
     // MARK: Glow — ambient bloom behind heroes / charts (additive on dark; faint warm on light)
     public static let glowAmbient    = Color(light: "#F0E4C0", dark: "#3A2D0A")
 
-    // MARK: Accent — GOLD brand anchor (chrome + the Charge world). Deepened on light for legibility on white.
-    public static let accent         = Color(light: "#B07D17", dark: "#E8B84B") // brand gold
-    public static let accentHover    = Color(light: "#946612", dark: "#FCEBA8")
-    public static let accentMuted    = Color(light: "#F4E8C8", dark: "#2A2210") // selected-row tint
-    /// Focus ring color (legible gold in both schemes).
-    public static let focusRing      = Color(light: "#C8902F", dark: "#E8B84B")
+    // MARK: Accent — chrome anchor (links, selection, focus, generic accent). On DARK this is the brand
+    // GOLD; on LIGHT it shifts to the deep brand BLUE so gold is reserved for the recovery/Charge world
+    // and the gold FAB — keeping the light theme from reading as wall-to-wall gold (Aaron 2026-06-16).
+    public static let accent         = Color(light: "#234F9E", dark: "#E8B84B") // deep blue (light) / brand gold (dark)
+    public static let accentHover    = Color(light: "#1C3F80", dark: "#FCEBA8")
+    public static let accentMuted    = Color(light: "#E4ECF6", dark: "#2A2210") // selected-row tint (pale blue / dark gold)
+    /// Focus ring color (blue on light, gold on dark).
+    public static let focusRing      = Color(light: "#2F6FCB", dark: "#E8B84B")
     /// Opacity for dimmed/disabled sections (shared so screens don't invent their own value).
     public static let disabledOpacity: Double = 0.45
 

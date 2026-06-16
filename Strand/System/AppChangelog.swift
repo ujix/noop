@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "4.3.1"
+    static let currentVersion = "4.3.2"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,13 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "4.3.2",
+            title: "Light theme tuning",
+            date: "June 2026",
+            items: [
+                "**Light got dialled in.** Based on early feedback it was leaning too gold, so the chrome — links, the selected range pill, header accents — now uses the deep brand **blue** on Light, with **gold kept for what it means** (the Charge/recovery rings and the action button). Cards now sit on a slightly **deeper warm canvas with a stronger shadow**, so they stand out more. And on **Mac**, a sidebar glitch where the NOOP lockup overlapped the navigation list is fixed. Dark is untouched.",
+            ]),
         Release(
             version: "4.3.1",
             title: "Light theme polish",

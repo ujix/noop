@@ -118,11 +118,12 @@ val DarkTokens = PaletteTokens(
 )
 
 val LightTokens = PaletteTokens(
-    surfaceBase = Color(0xFFF4F1EA), surfaceRaised = Color(0xFFFFFFFF), surfaceOverlay = Color(0xFFFFFFFF),
-    surfaceInset = Color(0xFFECE7DC), hairline = Color(0xFFE4DECF), hairlineStrong = Color(0xFFD2C9B6),
+    surfaceBase = Color(0xFFEAE3D4), surfaceRaised = Color(0xFFFFFFFF), surfaceOverlay = Color(0xFFFFFFFF),
+    surfaceInset = Color(0xFFDFD8C8), hairline = Color(0xFFD8D0BD), hairlineStrong = Color(0xFFC7BCA4),
     textPrimary = Color(0xFF1A2230), textSecondary = Color(0xFF4C5564), textTertiary = Color(0xFF7C8696),
     glowAmbient = Color(0xFFF0E4C0),
-    accent = Color(0xFFB07D17), accentHover = Color(0xFF946612), accentMuted = Color(0xFFF4E8C8), focusRing = Color(0xFFC8902F),
+    // Light chrome accent shifts to the deep brand blue (gold reserved for the recovery world + FAB).
+    accent = Color(0xFF234F9E), accentHover = Color(0xFF1C3F80), accentMuted = Color(0xFFE4ECF6), focusRing = Color(0xFF2F6FCB),
     recovery000 = Color(0xFF8F6212), recovery030 = Color(0xFFA87718), recovery055 = Color(0xFFC28E26),
     recovery078 = Color(0xFFD2A23A), recovery100 = Color(0xFFE0B44C),
     strain000 = Color(0xFF7E460E), strain033 = Color(0xFFA4621B), strain066 = Color(0xFFC2792E), strain100 = Color(0xFFD89240),

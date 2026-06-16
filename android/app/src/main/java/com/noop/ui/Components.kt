@@ -93,7 +93,7 @@ fun Modifier.frostedCardSurface(
     // off the warm-paper canvas with a soft drop shadow — the hairline alone is too faint on paper.
     .then(
         if (Palette.isLight)
-            Modifier.shadow(elevation = 4.dp, shape = RoundedCornerShape(cornerRadius), clip = false)
+            Modifier.shadow(elevation = 6.dp, shape = RoundedCornerShape(cornerRadius), clip = false)
         else Modifier
     )
     .drawBehind {
@@ -523,18 +523,20 @@ fun <T> SegmentedPillControl(
     ) {
         items.forEach { item ->
             val selected = item == selection
-            // Selected segment fills with the brand gold gradient and reads in dark goldDeepText;
-            // unselected stays clear with tertiary slate text. Mirrors StrandDesign's SegmentedPillControl.
+            // Selected segment is SELECTION CHROME → follows the accent: a gold gradient + gold-deep ink
+            // on dark; a flat blue accent + white ink on light (so light selection matches the blue
+            // chrome, not gold). Unselected stays clear with tertiary text.
             val pillShape = RoundedCornerShape(50)
             val pillBg = if (selected) {
-                Modifier.background(Brush.linearGradient(*Palette.goldGradient.toTypedArray()), pillShape)
+                if (Palette.isLight) Modifier.background(Palette.accent, pillShape)
+                else Modifier.background(Brush.linearGradient(*Palette.goldGradient.toTypedArray()), pillShape)
             } else {
                 Modifier
             }
             Text(
                 text = label(item),
                 style = NoopType.captionNumber,
-                color = if (selected) Palette.goldDeepText else Palette.textTertiary,
+                color = if (selected) (if (Palette.isLight) androidx.compose.ui.graphics.Color.White else Palette.goldDeepText) else Palette.textTertiary,
                 modifier = Modifier
                     .clip(pillShape)
                     .then(pillBg)

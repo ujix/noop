@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "4.3.1"
+    const val CURRENT_VERSION = "4.3.2"
 
     data class Release(
         val version: String,
@@ -36,6 +36,14 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "4.3.2",
+            title = "Light theme tuning",
+            date = "June 2026",
+            items = listOf(
+                "**Light got dialled in.** Based on early feedback it was leaning too gold, so the chrome — links, the selected range pill, header accents — now uses the deep brand **blue** on Light, with **gold kept for what it means** (the Charge/recovery rings and the action button). Cards now sit on a slightly **deeper warm canvas with a stronger shadow**, so they stand out more. Dark is untouched.",
+            ),
+        ),
         Release(
             version = "4.3.1",
             title = "Light theme polish",
