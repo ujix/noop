@@ -29,11 +29,13 @@ import kotlin.math.roundToLong
 
 /** The five metrics a range report can summarise. */
 enum class ReportMetric {
-    RECOVERY,    // Charge / recovery, 0–100
-    SLEEP_HOURS, // time asleep, hours
-    HRV,         // heart-rate variability, ms
-    RESTING_HR,  // resting heart rate, bpm
-    STRAIN;      // Effort / strain, 0–100
+    RECOVERY,      // Charge / recovery, 0–100
+    SLEEP_HOURS,   // time asleep, hours
+    HRV,           // heart-rate variability, ms
+    RESTING_HR,    // resting heart rate, bpm
+    STRAIN,        // Effort / strain, 0–100
+    RESP_RATE,     // respiratory rate during sleep, breaths/min
+    SKIN_TEMP_DEV; // skin-temperature deviation from baseline, °C (signed)
 
     /** Human label for the metric (matches the rest of the app's naming). */
     val label: String
@@ -43,6 +45,8 @@ enum class ReportMetric {
             HRV -> "HRV"
             RESTING_HR -> "Resting HR"
             STRAIN -> "Strain"
+            RESP_RATE -> "Respiratory rate"
+            SKIN_TEMP_DEV -> "Skin temp"
         }
 
     /** Display unit suffix (empty for the unitless 0–100 scores). */
@@ -52,12 +56,30 @@ enum class ReportMetric {
             SLEEP_HOURS -> "h"
             HRV -> "ms"
             RESTING_HR -> "bpm"
+            RESP_RATE -> "br/min"
+            SKIN_TEMP_DEV -> "°C"
         }
 
-    /** True when a HIGHER value is the better outcome (Resting HR is the lone exception). */
+    /**
+     * True when a HIGHER value is the better outcome. Resting HR and respiratory rate are
+     * the metrics where lower is better. (Ignored for valence-free metrics — see
+     * [framesGoodBad].)
+     */
     val higherIsBetter: Boolean
         get() = when (this) {
-            RESTING_HR -> false
+            RESTING_HR, RESP_RATE -> false
+            else -> true
+        }
+
+    /**
+     * Whether a rising/falling move carries a clear good/bad valence. False for a signed
+     * deviation metric (skin-temp Δ), where neither direction is unambiguously better — the
+     * report then shows the trend direction without a "good sign / worth a look" verdict and
+     * colours the change chip neutrally.
+     */
+    val framesGoodBad: Boolean
+        get() = when (this) {
+            SKIN_TEMP_DEV -> false
             else -> true
         }
 
@@ -68,17 +90,19 @@ enum class ReportMetric {
      */
     val trendSlopeThreshold: Double
         get() = when (this) {
-            RECOVERY -> 0.5     // recovery points / day
-            STRAIN -> 0.5       // Effort points / day
-            SLEEP_HOURS -> 0.05 // hours / day (~3 min/day)
-            HRV -> 0.4          // ms / day
-            RESTING_HR -> 0.2   // bpm / day
+            RECOVERY -> 0.5       // recovery points / day
+            STRAIN -> 0.5         // Effort points / day
+            SLEEP_HOURS -> 0.05   // hours / day (~3 min/day)
+            HRV -> 0.4            // ms / day
+            RESTING_HR -> 0.2     // bpm / day
+            RESP_RATE -> 0.1      // breaths/min / day (~0.7/week flags illness onset)
+            SKIN_TEMP_DEV -> 0.03 // °C / day (~0.2°C/week)
         }
 
     companion object {
         /** Stable iteration order, mirroring Swift's ReportMetric.allCases. */
         val allCases: List<ReportMetric> =
-            listOf(RECOVERY, SLEEP_HOURS, HRV, RESTING_HR, STRAIN)
+            listOf(RECOVERY, SLEEP_HOURS, HRV, RESTING_HR, STRAIN, RESP_RATE, SKIN_TEMP_DEV)
     }
 }
 
@@ -243,7 +267,8 @@ object RangeReportEngine {
             ReportTrend.FALLING -> "trending down"
             ReportTrend.FLAT -> "holding steady"
         }
-        val frame = if (s.trend == ReportTrend.FLAT) {
+        val frame = if (s.trend == ReportTrend.FLAT || !s.metric.framesGoodBad) {
+            // Flat, or a signed-deviation metric with no inherent good/bad direction.
             ""
         } else {
             val up = s.trend == ReportTrend.RISING

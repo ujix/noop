@@ -17,6 +17,10 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 4.2.9 — Respiratory rate & skin temperature in the Trends report (all platforms)
+
+- The shareable Trends report (**Trends → Export**) now includes **Respiratory rate** and **Skin temperature** — two more rows measured from the strap, alongside HRV, Resting HR, Sleep, Recovery and Strain. Each shows its average, min/max with the day it fell on, daily trend and a per-day sparkline over the window you pick. Respiratory rate treats a **rising** trend as *"worth a look"* (a higher resting breathing rate can signal illness or strain — lower is the calmer read). **Skin temperature is shown as the signed deviation from your own baseline** (e.g. `+0.3 °C`), and deliberately carries **no good/bad verdict** — a move in either direction can matter, so the report states the direction and lets you read it. The "How to read this" legend now lists both as measured. Thanks @subscriptiondestroyer (#457). *(Workouts and stress in the report are still tracked as the next follow-ups.)*
+
 ## 4.2.8 — Double-tap to log a sleep mark (iPhone & Mac, experimental)
 
 - A new double-tap action: **"Log a sleep mark."** Set it under **Settings → Automations** (the strap double-tap action), and a double-tap on your band writes a timestamped `Sleep mark @ 23:42` line into your strap log — with a single confirming buzz — so you can mark bedtime, wake, or a mid-night wake with no screenshots and nothing to remember. The marks ride along in your shareable strap log. This is **Phase 1** (just capturing the marks) — the foundation for tap-driven sleep bounds and personal sleep-stage calibration down the line. Thanks @maddognik for the idea (#461). *(iPhone & Mac first; Android to follow — its strap double-tap doesn't yet have a configurable action.)*

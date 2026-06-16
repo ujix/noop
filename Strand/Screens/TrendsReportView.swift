@@ -65,13 +65,15 @@ enum ReportRange: Int, CaseIterable, Identifiable {
 /// `days` array and today's local day key.
 enum TrendsReportData {
 
-    /// The five day→value maps the engine consumes, keyed by ReportMetric.
+    /// The seven day→value maps the engine consumes, keyed by ReportMetric.
     static func metricMaps(from days: [DailyMetric]) -> [ReportMetric: [String: Double]] {
         var recovery: [String: Double] = [:]
         var sleepHours: [String: Double] = [:]
         var hrv: [String: Double] = [:]
         var restingHr: [String: Double] = [:]
         var strain: [String: Double] = [:]
+        var respRate: [String: Double] = [:]
+        var skinTempDev: [String: Double] = [:]
         for d in days {
             if let v = d.recovery { recovery[d.day] = v }
             // Sleep is reported in HOURS to match the metric's unit; totalSleepMin is the
@@ -80,10 +82,14 @@ enum TrendsReportData {
             if let v = d.avgHrv { hrv[d.day] = v }
             if let v = d.restingHr { restingHr[d.day] = Double(v) }
             if let v = d.strain { strain[d.day] = v }
+            // In-sleep physiology (v7 columns). Absent on days the strap didn't measure them.
+            if let v = d.respRateBpm { respRate[d.day] = v }
+            if let v = d.skinTempDevC { skinTempDev[d.day] = v }
         }
         return [
             .recovery: recovery, .sleepHours: sleepHours, .hrv: hrv,
             .restingHr: restingHr, .strain: strain,
+            .respRate: respRate, .skinTempDev: skinTempDev,
         ]
     }
 
@@ -138,11 +144,13 @@ private extension ReportMetric {
     /// The line/accent colour for the metric, keeping each its long-standing hue.
     var accent: Color {
         switch self {
-        case .recovery:   return StrandPalette.chargeColor
-        case .strain:     return StrandPalette.effortColor
-        case .sleepHours: return StrandPalette.restColor
-        case .hrv:        return StrandPalette.metricPurple
-        case .restingHr:  return StrandPalette.metricRose
+        case .recovery:    return StrandPalette.chargeColor
+        case .strain:      return StrandPalette.effortColor
+        case .sleepHours:  return StrandPalette.restColor
+        case .hrv:         return StrandPalette.metricPurple
+        case .restingHr:   return StrandPalette.metricRose
+        case .respRate:    return StrandPalette.metricCyan   // breath / air — teal
+        case .skinTempDev: return StrandPalette.metricRose   // temperature — warm (shares RHR's hue)
         }
     }
 
@@ -296,8 +304,10 @@ struct TrendsReportPage: View {
             TrendChip(text: "steady", color: StrandPalette.textTertiary)
         } else {
             let up = d > 0
-            let good = up == stat.metric.higherIsBetter
-            let color = good ? StrandPalette.statusPositive : StrandPalette.metricRose
+            // Signed-deviation metric (skin-temp Δ): show the move, no good/bad verdict.
+            let color: Color = stat.metric.framesGoodBad
+                ? (up == stat.metric.higherIsBetter ? StrandPalette.statusPositive : StrandPalette.metricRose)
+                : StrandPalette.textTertiary
             let sign = up ? "+" : "−"
             TrendChip(text: "\(sign)\(round1Text(abs(d)))", color: color)
         }
@@ -315,7 +325,7 @@ struct TrendsReportPage: View {
                     Text("Not enough data in this range yet")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("No recovery, sleep, HRV, resting-HR or strain readings fell inside \(range.longName.lowercased()). Wear your strap a few more days, or pick a wider range, then export again.")
+                    Text("No recovery, sleep, HRV, resting-HR, strain, respiratory-rate or skin-temp readings fell inside \(range.longName.lowercased()). Wear your strap a few more days, or pick a wider range, then export again.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -332,7 +342,8 @@ struct TrendsReportPage: View {
             // Provenance legend (#457): a clinician (or anyone) reading this needs to know which numbers
             // are directly measured vs. NOOP's own derived scores. HRV / Resting HR come off the strap;
             // Recovery and Strain are computed on-device and are NOT clinical measures.
-            Text("How to read this: HRV, Resting HR and Sleep duration are measured from the strap. "
+            Text("How to read this: HRV, Resting HR, Sleep duration, Respiratory rate and Skin temperature "
+                + "are measured from the strap (skin temp is shown as the deviation from your own baseline). "
                 + "Recovery and Strain are NOOP's own on-device scores, not clinical measures — Recovery "
                 + "is a daily readiness composite (HRV, resting HR, sleep and skin-temp trend), and Strain "
                 + "is cardiovascular load derived from heart rate.")
@@ -350,9 +361,13 @@ struct TrendsReportPage: View {
 
     // MARK: Formatting
 
-    /// Whole-number for the 0–100 scores + bpm + ms; one decimal for sleep hours.
+    /// Whole-number for the 0–100 scores + bpm + ms; one decimal for sleep hours,
+    /// respiratory rate and skin-temp Δ. Skin-temp is a signed deviation from baseline, so
+    /// a positive reading gets an explicit "+" to keep it from reading as an absolute temp.
     private func valueText(_ v: Double, _ unit: String) -> String {
-        let num = unit == "h" ? round1Text(v) : "\(Int(v.rounded()))"
+        let oneDecimal = (unit == "h" || unit == "br/min" || unit == "°C")
+        var num = oneDecimal ? round1Text(v) : "\(Int(v.rounded()))"
+        if unit == "°C" && v > 0 { num = "+\(num)" }
         return unit.isEmpty ? num : "\(num) \(unit)"
     }
 

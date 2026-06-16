@@ -281,6 +281,53 @@ class RangeReportTest {
         assertTrue(report.headlines[1].contains("worth a look"))
     }
 
+    // Respiratory rate (lower is better; a rising trend is "worth a look")
+
+    @Test
+    fun respiratoryRateRisingIsWorthALook() {
+        // A +0.5 br/min/day climb (thr 0.1) → rising. Higher resting resp = worse.
+        val resp = mapOf(
+            "2026-06-01" to 14.0, "2026-06-02" to 14.5,
+            "2026-06-03" to 15.0, "2026-06-04" to 15.5,
+        )
+        val report = RangeReportEngine.build(
+            metrics = mapOf(ReportMetric.RESP_RATE to resp),
+            start = "2026-06-01", end = "2026-06-04",
+        )
+        val s = report.stat(ReportMetric.RESP_RATE)!!
+        assertEquals(ReportTrend.RISING, s.trend)
+        assertEquals(14.75, s.mean, 1e-9)
+        assertEquals("br/min", ReportMetric.RESP_RATE.unit)
+        assertFalse(ReportMetric.RESP_RATE.higherIsBetter)   // lower resting resp is better
+        assertTrue(report.headlines[0].contains("Respiratory rate"))
+        assertTrue(report.headlines[0].contains("worth a look")) // rose + lower-is-better
+    }
+
+    // Skin-temp Δ is valence-free (no good/bad framing, even on a clear trend)
+
+    @Test
+    fun skinTempDeviationHasNoGoodBadFrame() {
+        // A +0.1 °C/day climb (thr 0.03) → clearly rising, but skin-temp Δ carries no
+        // inherent good/bad direction, so the headline states the move WITHOUT a verdict.
+        val skin = mapOf(
+            "2026-06-01" to 0.0, "2026-06-02" to 0.1,
+            "2026-06-03" to 0.2, "2026-06-04" to 0.3,
+        )
+        val report = RangeReportEngine.build(
+            metrics = mapOf(ReportMetric.SKIN_TEMP_DEV to skin),
+            start = "2026-06-01", end = "2026-06-04",
+        )
+        val s = report.stat(ReportMetric.SKIN_TEMP_DEV)!!
+        assertEquals(ReportTrend.RISING, s.trend)
+        assertEquals("°C", ReportMetric.SKIN_TEMP_DEV.unit)
+        assertFalse(ReportMetric.SKIN_TEMP_DEV.framesGoodBad)
+        val line = report.headlines[0]
+        assertTrue(line.contains("Skin temp"))
+        assertTrue(line.contains("trending up"))
+        assertFalse(line.contains("good sign"))              // no verdict either way
+        assertFalse(line.contains("worth a look"))
+    }
+
     // Determinism
 
     @Test

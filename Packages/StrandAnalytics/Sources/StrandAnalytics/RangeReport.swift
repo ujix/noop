@@ -29,22 +29,26 @@ import Foundation
 
 // MARK: - Metric identity
 
-/// The five metrics a range report can summarise.
+/// The seven metrics a range report can summarise.
 public enum ReportMetric: String, CaseIterable, Sendable {
     case recovery     // Charge / recovery, 0–100
     case sleepHours   // time asleep, hours
     case hrv          // heart-rate variability, ms
     case restingHr    // resting heart rate, bpm
     case strain       // Effort / strain, 0–100
+    case respRate     // respiratory rate during sleep, breaths/min
+    case skinTempDev  // skin-temperature deviation from baseline, °C (signed)
 
     /// Human label for the metric (matches the rest of the app's naming).
     public var label: String {
         switch self {
-        case .recovery:   return "Recovery"
-        case .sleepHours: return "Sleep"
-        case .hrv:        return "HRV"
-        case .restingHr:  return "Resting HR"
-        case .strain:     return "Strain"
+        case .recovery:    return "Recovery"
+        case .sleepHours:  return "Sleep"
+        case .hrv:         return "HRV"
+        case .restingHr:   return "Resting HR"
+        case .strain:      return "Strain"
+        case .respRate:    return "Respiratory rate"
+        case .skinTempDev: return "Skin temp"
         }
     }
 
@@ -55,15 +59,29 @@ public enum ReportMetric: String, CaseIterable, Sendable {
         case .sleepHours:        return "h"
         case .hrv:               return "ms"
         case .restingHr:         return "bpm"
+        case .respRate:          return "br/min"
+        case .skinTempDev:       return "°C"
         }
     }
 
-    /// True when a HIGHER value is the better outcome. Resting HR is the lone metric
-    /// where lower is better.
+    /// True when a HIGHER value is the better outcome. Resting HR and respiratory rate
+    /// are the metrics where lower is better. (Ignored for valence-free metrics — see
+    /// `framesGoodBad`.)
     public var higherIsBetter: Bool {
         switch self {
-        case .restingHr: return false
-        default:         return true
+        case .restingHr, .respRate: return false
+        default:                    return true
+        }
+    }
+
+    /// Whether a rising/falling move carries a clear good/bad valence. False for a signed
+    /// deviation metric (skin-temp Δ), where neither direction is unambiguously better —
+    /// the report then shows the trend direction without a "good sign / worth a look"
+    /// verdict, and colours the change chip neutrally.
+    public var framesGoodBad: Bool {
+        switch self {
+        case .skinTempDev: return false
+        default:           return true
         }
     }
 
@@ -72,11 +90,13 @@ public enum ReportMetric: String, CaseIterable, Sendable {
     /// constants (not personal baselines) so the read is stable and explainable.
     public var trendSlopeThreshold: Double {
         switch self {
-        case .recovery:   return 0.5   // recovery points / day
-        case .strain:     return 0.5   // Effort points / day
-        case .sleepHours: return 0.05  // hours / day (~3 min/day)
-        case .hrv:        return 0.4   // ms / day
-        case .restingHr:  return 0.2   // bpm / day
+        case .recovery:    return 0.5   // recovery points / day
+        case .strain:      return 0.5   // Effort points / day
+        case .sleepHours:  return 0.05  // hours / day (~3 min/day)
+        case .hrv:         return 0.4   // ms / day
+        case .restingHr:   return 0.2   // bpm / day
+        case .respRate:    return 0.1   // breaths/min / day (~0.7/week flags illness onset)
+        case .skinTempDev: return 0.03  // °C / day (~0.2°C/week)
         }
     }
 }
@@ -279,7 +299,8 @@ public enum RangeReportEngine {
         case .flat:    word = "holding steady"
         }
         let frame: String
-        if s.trend == .flat {
+        if s.trend == .flat || !s.metric.framesGoodBad {
+            // Flat, or a signed-deviation metric with no inherent good/bad direction.
             frame = ""
         } else {
             let up = s.trend == .rising

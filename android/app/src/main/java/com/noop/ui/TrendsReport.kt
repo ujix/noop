@@ -71,13 +71,15 @@ enum class ReportRange(val days: Int?, val label: String, val longName: String) 
 
 object TrendsReportData {
 
-    /** The five day→value maps the engine consumes, keyed by ReportMetric. */
+    /** The seven day→value maps the engine consumes, keyed by ReportMetric. */
     fun metricMaps(days: List<DailyMetric>): Map<ReportMetric, Map<String, Double>> {
         val recovery = HashMap<String, Double>()
         val sleepHours = HashMap<String, Double>()
         val hrv = HashMap<String, Double>()
         val restingHr = HashMap<String, Double>()
         val strain = HashMap<String, Double>()
+        val respRate = HashMap<String, Double>()
+        val skinTempDev = HashMap<String, Double>()
         for (d in days) {
             d.recovery?.let { recovery[d.day] = it }
             // Sleep reported in HOURS (the metric's unit); totalSleepMin is minutes asleep.
@@ -86,6 +88,9 @@ object TrendsReportData {
             d.avgHrv?.let { hrv[d.day] = it }
             d.restingHr?.let { restingHr[d.day] = it.toDouble() }
             d.strain?.let { strain[d.day] = it }
+            // In-sleep physiology (v7 columns). Absent on days the strap didn't measure them.
+            d.respRateBpm?.let { respRate[d.day] = it }
+            d.skinTempDevC?.let { skinTempDev[d.day] = it }
         }
         return mapOf(
             ReportMetric.RECOVERY to recovery,
@@ -93,6 +98,8 @@ object TrendsReportData {
             ReportMetric.HRV to hrv,
             ReportMetric.RESTING_HR to restingHr,
             ReportMetric.STRAIN to strain,
+            ReportMetric.RESP_RATE to respRate,
+            ReportMetric.SKIN_TEMP_DEV to skinTempDev,
         )
     }
 
@@ -124,11 +131,13 @@ object TrendsReportData {
 // MARK: - Metric → colour (mirror Swift's per-metric hue; raw ARGB for the native Canvas)
 
 private fun ReportMetric.accentArgb(): Int = when (this) {
-    ReportMetric.RECOVERY -> 0xFFE8B84B.toInt()   // charge gold
-    ReportMetric.STRAIN -> 0xFFD98A3D.toInt()      // effort amber
-    ReportMetric.SLEEP_HOURS -> 0xFF4A90E2.toInt() // rest blue
-    ReportMetric.HRV -> 0xFF4A90E2.toInt()         // HRV shares the rest/blue world
-    ReportMetric.RESTING_HR -> 0xFFE0662F.toInt()  // burnt-orange risk hue
+    ReportMetric.RECOVERY -> 0xFFE8B84B.toInt()      // charge gold
+    ReportMetric.STRAIN -> 0xFFD98A3D.toInt()         // effort amber
+    ReportMetric.SLEEP_HOURS -> 0xFF4A90E2.toInt()    // rest blue
+    ReportMetric.HRV -> 0xFF4A90E2.toInt()            // HRV shares the rest/blue world
+    ReportMetric.RESTING_HR -> 0xFFE0662F.toInt()     // burnt-orange risk hue
+    ReportMetric.RESP_RATE -> 0xFF3FA9C9.toInt()      // breath / air — teal (metricCyan)
+    ReportMetric.SKIN_TEMP_DEV -> 0xFFE0662F.toInt()  // temperature — warm (shares RHR's hue)
 }
 
 // MARK: - PDF renderer (deterministic native Canvas → PdfDocument)
@@ -316,9 +325,14 @@ object TrendsReportRenderer {
             "steady" to TEXT_TERTIARY
         } else {
             val up = d > 0
-            val good = up == stat.metric.higherIsBetter
             val sign = if (up) "+" else "−"
-            "$sign${round1(abs(d))}" to (if (good) POSITIVE else NEGATIVE)
+            // Signed-deviation metric (skin-temp Δ): show the move, no good/bad verdict.
+            val c = if (stat.metric.framesGoodBad) {
+                if (up == stat.metric.higherIsBetter) POSITIVE else NEGATIVE
+            } else {
+                TEXT_TERTIARY
+            }
+            "$sign${round1(abs(d))}" to c
         }
         // A small tinted pill.
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -344,8 +358,8 @@ object TrendsReportRenderer {
         drawCard(canvas, MARGIN, top, PAGE_W - MARGIN, top + cardH, null)
         val left = MARGIN + 16f
         text(canvas, "Not enough data in this range yet", left, top + 30f, 16f, sansBold, TEXT_PRIMARY)
-        val body = "No recovery, sleep, HRV, resting-HR or strain readings fell inside " +
-            "${range.longName.lowercase()}. Wear your strap a few more days, or pick a wider " +
+        val body = "No recovery, sleep, HRV, resting-HR, strain, respiratory-rate or skin-temp readings " +
+            "fell inside ${range.longName.lowercase()}. Wear your strap a few more days, or pick a wider " +
             "range, then export again."
         drawWrapped(canvas, body, left, top + 52f, PAGE_W - MARGIN - left - 16f, 16f, 12f, sans, TEXT_SECONDARY)
     }
@@ -357,10 +371,11 @@ object TrendsReportRenderer {
         // Provenance legend (#457): make clear which numbers are measured vs. NOOP's own derived scores,
         // so a clinician reading the PDF isn't misled into treating Recovery/Strain as clinical measures.
         // Sits above the hairline; wraps to the page width (~4 lines at this size).
-        val legend = "How to read this: HRV, Resting HR and Sleep duration are measured from the strap. " +
-            "Recovery and Strain are NOOP's own on-device scores, not clinical measures — Recovery is a " +
-            "daily readiness composite (HRV, resting HR, sleep and skin-temp trend), and Strain is " +
-            "cardiovascular load derived from heart rate."
+        val legend = "How to read this: HRV, Resting HR, Sleep duration, Respiratory rate and Skin " +
+            "temperature are measured from the strap (skin temp is shown as the deviation from your own " +
+            "baseline). Recovery and Strain are NOOP's own on-device scores, not clinical measures — " +
+            "Recovery is a daily readiness composite (HRV, resting HR, sleep and skin-temp trend), and " +
+            "Strain is cardiovascular load derived from heart rate."
         drawWrapped(canvas, legend, MARGIN, y - 52f, PAGE_W - 2 * MARGIN, 11f, 9f, sans, TEXT_TERTIARY)
         line(canvas, MARGIN, y - 14f, PAGE_W - MARGIN, y - 14f, HAIRLINE)
         text(
@@ -489,7 +504,12 @@ object TrendsReportRenderer {
     // --- Formatting (mirror the Swift page) ---
 
     private fun valueText(v: Double, unit: String): String {
-        val num = if (unit == "h") round1(v) else "${v.roundToInt()}"
+        // One decimal for sleep hours, respiratory rate and skin-temp Δ; whole numbers for
+        // the scores + bpm + ms. Skin-temp is a signed deviation, so a positive reading gets
+        // an explicit "+" to keep it from reading as an absolute temperature.
+        val oneDecimal = unit == "h" || unit == "br/min" || unit == "°C"
+        var num = if (oneDecimal) round1(v) else "${v.roundToInt()}"
+        if (unit == "°C" && v > 0) num = "+$num"
         return if (unit.isEmpty()) num else "$num $unit"
     }
 

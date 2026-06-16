@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "4.2.5"
+    const val CURRENT_VERSION = "4.2.9"
 
     data class Release(
         val version: String,
@@ -36,6 +36,14 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "4.2.9",
+            title = "Respiratory rate & skin temp in the Trends report",
+            date = "June 2026",
+            items = listOf(
+                "**Your exported Trends report now includes Respiratory rate and Skin temperature.** Two more measured-from-the-strap rows sit alongside HRV, Resting HR, Sleep, Recovery and Strain — each with its average, range, daily trend and a per-day sparkline over the window you pick. Respiratory rate flags a rising trend as \"worth a look\" (a higher resting breathing rate can signal illness or strain); skin temperature is shown as the signed deviation from your own baseline (e.g. +0.3 °C), with no good/bad verdict — either direction can matter. Thanks @subscriptiondestroyer (#457).",
+            ),
+        ),
         Release(
             version = "4.2.5",
             title = "Trends report explains its scores",
