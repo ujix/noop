@@ -174,11 +174,11 @@ jobs:
           path: ${{ runner.temp }}/Noop-iOS-${{ needs.setup.outputs.version }}.ipa
           retention-days: 30
 
-  # ─── GitHub Release (version-bump commits only) ──────────────────────────────
+  # ─── GitHub Release (version-bump commits OR manual workflow_dispatch) ─────────
   publish-release:
     name: Publish GitHub Release
     needs: [setup, android-apk, apple]
-    if: needs.setup.outputs.is_release == 'true'
+    if: needs.setup.outputs.is_release == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -211,6 +211,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release delete "v${VERSION}" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
           gh release create "v${VERSION}" \
             --repo "${{ github.repository }}" \
             --title "v${VERSION}" \
