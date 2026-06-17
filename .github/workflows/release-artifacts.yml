@@ -80,7 +80,7 @@ jobs:
       - name: Decode release keystore
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-        run: echo "$KEYSTORE_B64" | base64 -d > noop-release.jks
+        run: python3 -c "import base64,os; open('noop-release.jks','wb').write(base64.b64decode(os.environ['KEYSTORE_B64']))"
 
       - name: Write keystore.properties
         env:
