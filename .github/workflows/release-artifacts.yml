@@ -1,7 +1,11 @@
-# Build distributable artifacts for all platforms on every push to main.
+# Build distributable artifacts for all platforms when code changes.
 # On version-bump commits (message starts with "vX.Y.Z —") a GitHub Release is
 # also created automatically, with the commit description as release notes and
 # all three artifacts attached.
+#
+# Triggers on code/project file changes only — README, docs, and CI-only
+# commits do not trigger a build. To manually cut a release, use
+# "Run workflow" (workflow_dispatch) from the Actions tab.
 #
 # Signing policy: no secrets, no signing identity — matches the project's
 # anonymity policy. The unsigned IPA is suitable for AltStore (which re-signs on
@@ -12,6 +16,15 @@ name: Release Artifacts
 on:
   push:
     branches: [main]
+    paths:
+      - 'android/**'
+      - 'Strand/**'
+      - 'StrandiOS/**'
+      - 'StrandiOSShared/**'
+      - 'StrandiOSWidgets/**'
+      - 'Packages/**'
+      - 'project.yml'
+      - '.github/workflows/release-artifacts.yml'
   workflow_dispatch:
 
 concurrency:
