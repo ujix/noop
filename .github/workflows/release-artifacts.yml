@@ -1,11 +1,12 @@
-# Produce distributable build artifacts for all platforms on every push to main.
+# Build distributable artifacts for all platforms on every push to main.
+# On version-bump commits (message starts with "vX.Y.Z —") a GitHub Release is
+# also created automatically, with the commit description as release notes and
+# all three artifacts attached.
 #
-# Intentionally no signing and no secrets — matches the project's anonymity policy.
-# The unsigned IPA is suitable for AltStore (which re-signs on install).
-# The macOS .app is unsigned and unnotarized; users right-click → Open to bypass Gatekeeper.
-# The Android APK is signed with the Android debug key (no keystore secret needed).
-#
-# Artifacts are retained for 30 days and downloadable from the Actions run page.
+# Signing policy: no secrets, no signing identity — matches the project's
+# anonymity policy. The unsigned IPA is suitable for AltStore (which re-signs on
+# install). The macOS .app is unsigned; users right-click → Open to bypass
+# Gatekeeper. The Android APK uses the Android debug key automatically.
 name: Release Artifacts
 
 on:
@@ -18,9 +19,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─── Detect version + whether this commit is a release ──────────────────────
+  setup:
+    name: Detect version
+    runs-on: ubuntu-latest
+    outputs:
+      version:    ${{ steps.meta.outputs.version }}
+      is_release: ${{ steps.meta.outputs.is_release }}
+      notes_file: ${{ steps.meta.outputs.notes_file }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version and release metadata
+        id: meta
+        run: |
+          VERSION=$(grep 'versionName = ' android/app/build.gradle.kts \
+            | sed 's/.*"\(.*\)".*/\1/')
+          SUBJECT=$(git log -1 --format=%s)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          if echo "$SUBJECT" | grep -qE "^v${VERSION}[[:space:]]"; then
+            # Strip leading "vX.Y.Z — " (em-dash variant) or "vX.Y.Z - "
+            DESC=$(echo "$SUBJECT" | sed 's/^v[0-9][0-9.]*[[:space:]]*[—-][[:space:]]*//')
+            NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+            cat > "$NOTES_FILE" <<NOTES
+${DESC}
+
+| Platform | File | Notes |
+|---|---|---|
+| Android | \`Noop-${VERSION}.apk\` | Debug-signed; sideload directly |
+| iOS | \`Noop-iOS-${VERSION}.ipa\` | Unsigned — install via AltStore |
+| macOS | \`Noop-macOS-${VERSION}.zip\` | Unsigned .app; right-click → Open |
+NOTES
+            echo "is_release=true"         >> "$GITHUB_OUTPUT"
+            echo "notes_file=${NOTES_FILE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "notes_file="      >> "$GITHUB_OUTPUT"
+          fi
+
   # ─── Android APK ────────────────────────────────────────────────────────────
   android-apk:
     name: Android APK
+    needs: setup
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,19 +80,25 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build full-release debug APK
+      - name: Build debug APK
         run: ./gradlew assembleFullDebug
+
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/full/debug/app-full-debug.apk \
+             app/build/outputs/apk/full/debug/Noop-${{ needs.setup.outputs.version }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: noop-android-${{ github.sha }}
-          path: android/app/build/outputs/apk/full/debug/app-full-debug.apk
+          path: android/app/build/outputs/apk/full/debug/Noop-${{ needs.setup.outputs.version }}.apk
           retention-days: 30
 
   # ─── macOS .app + iOS .ipa ──────────────────────────────────────────────────
   apple:
     name: macOS .app + iOS .ipa
+    needs: setup
     runs-on: macos-15
     steps:
       - name: Checkout
@@ -78,13 +126,13 @@ jobs:
         run: |
           APP=$(find '${{ runner.temp }}/Strand.xcarchive/Products' -name '*.app' -maxdepth 3 | head -1)
           cd "$(dirname "$APP")"
-          zip -r '${{ runner.temp }}/Noop-macOS.zip' "$(basename "$APP")"
+          zip -r '${{ runner.temp }}/Noop-macOS-${{ needs.setup.outputs.version }}.zip' "$(basename "$APP")"
 
       - name: Upload macOS app
         uses: actions/upload-artifact@v4
         with:
           name: noop-macos-${{ github.sha }}
-          path: ${{ runner.temp }}/Noop-macOS.zip
+          path: ${{ runner.temp }}/Noop-macOS-${{ needs.setup.outputs.version }}.zip
           retention-days: 30
 
       # ── iOS ──
@@ -105,11 +153,58 @@ jobs:
           APP=$(find '${{ runner.temp }}/NOOPiOS.xcarchive/Products' -name '*.app' -maxdepth 3 | head -1)
           cp -R "$APP" '${{ runner.temp }}/Payload/'
           cd '${{ runner.temp }}'
-          zip -r Noop-iOS.ipa Payload
+          zip -r 'Noop-iOS-${{ needs.setup.outputs.version }}.ipa' Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: noop-ios-${{ github.sha }}
-          path: ${{ runner.temp }}/Noop-iOS.ipa
+          path: ${{ runner.temp }}/Noop-iOS-${{ needs.setup.outputs.version }}.ipa
           retention-days: 30
+
+  # ─── GitHub Release (version-bump commits only) ──────────────────────────────
+  publish-release:
+    name: Publish GitHub Release
+    needs: [setup, android-apk, apple]
+    if: needs.setup.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (for release notes file)
+        uses: actions/checkout@v4
+
+      - name: Re-generate release notes
+        id: notes
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          SUBJECT=$(git log -1 --format=%s)
+          DESC=$(echo "$SUBJECT" | sed 's/^v[0-9][0-9.]*[[:space:]]*[—-][[:space:]]*//')
+          cat > /tmp/release-notes.md <<NOTES
+${DESC}
+
+| Platform | File | Notes |
+|---|---|---|
+| Android | \`Noop-${VERSION}.apk\` | Debug-signed; sideload directly |
+| iOS | \`Noop-iOS-${VERSION}.ipa\` | Unsigned — install via AltStore |
+| macOS | \`Noop-macOS-${VERSION}.zip\` | Unsigned .app; right-click → Open |
+NOTES
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --title "v${VERSION}" \
+            --notes-file /tmp/release-notes.md \
+            "artifacts/noop-android-${{ github.sha }}/Noop-${VERSION}.apk" \
+            "artifacts/noop-macos-${{ github.sha }}/Noop-macOS-${VERSION}.zip" \
+            "artifacts/noop-ios-${{ github.sha }}/Noop-iOS-${VERSION}.ipa"
