@@ -87,8 +87,18 @@ transactions are irreversible, and only ever send a coin to its matching network
 | **ADA** | Cardano | `addr1qxsju3y0mlke2h6h2g6qgnq4r3jstngtyjxs0nnp5zrv28zv8p5rgzruxyjz33j9k23pffta8z639e2snjdd4vcetfqsn4vwr3` |
 | **ETH** | Ethereum | `0xd64D508b531c4b1297Ca4023C774e0E97aA67B7F` |
 | **XRP** | XRP Ledger | `rpvijHi2nVY9WWAJhojsAX5tJmHdmLtFhq` |
+| **USDT** | (ERC20, BEP20) | `0x5f570f5d2294218c09eada7fa34b0acd645b0958` | (this fork)
 
 ### Copyable addresses
+
+**USDT (BEP20|ERC20)**
+
+```text
+0x5f570f5d2294218c09eada7fa34b0acd645b0958
+```
+this fork.
+
+OG Creator:
 
 **Bitcoin (BTC)**
 
