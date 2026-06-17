@@ -1,0 +1,115 @@
+# Produce distributable build artifacts for all platforms on every push to main.
+#
+# Intentionally no signing and no secrets — matches the project's anonymity policy.
+# The unsigned IPA is suitable for AltStore (which re-signs on install).
+# The macOS .app is unsigned and unnotarized; users right-click → Open to bypass Gatekeeper.
+# The Android APK is signed with the Android debug key (no keystore secret needed).
+#
+# Artifacts are retained for 30 days and downloadable from the Actions run page.
+name: Release Artifacts
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Android APK ────────────────────────────────────────────────────────────
+  android-apk:
+    name: Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build full-release debug APK
+        run: ./gradlew assembleFullDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-android-${{ github.sha }}
+          path: android/app/build/outputs/apk/full/debug/app-full-debug.apk
+          retention-days: 30
+
+  # ─── macOS .app + iOS .ipa ──────────────────────────────────────────────────
+  apple:
+    name: macOS .app + iOS .ipa
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # ── macOS ──
+      - name: Archive macOS app
+        run: >-
+          xcodebuild archive
+          -scheme Strand
+          -configuration Release
+          -destination 'platform=macOS'
+          -archivePath '${{ runner.temp }}/Strand.xcarchive'
+          SKIP_INSTALL=NO
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+
+      - name: Package macOS .app → zip
+        run: |
+          APP=$(find '${{ runner.temp }}/Strand.xcarchive/Products' -name '*.app' -maxdepth 3 | head -1)
+          cd "$(dirname "$APP")"
+          zip -r '${{ runner.temp }}/Noop-macOS.zip' "$(basename "$APP")"
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-macos-${{ github.sha }}
+          path: ${{ runner.temp }}/Noop-macOS.zip
+          retention-days: 30
+
+      # ── iOS ──
+      - name: Archive iOS app
+        run: >-
+          xcodebuild archive
+          -scheme NOOPiOS
+          -configuration Release
+          -destination 'generic/platform=iOS'
+          -archivePath '${{ runner.temp }}/NOOPiOS.xcarchive'
+          SKIP_INSTALL=NO
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+
+      - name: Package iOS .app → .ipa
+        run: |
+          mkdir -p '${{ runner.temp }}/Payload'
+          APP=$(find '${{ runner.temp }}/NOOPiOS.xcarchive/Products' -name '*.app' -maxdepth 3 | head -1)
+          cp -R "$APP" '${{ runner.temp }}/Payload/'
+          cd '${{ runner.temp }}'
+          zip -r Noop-iOS.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-ios-${{ github.sha }}
+          path: ${{ runner.temp }}/Noop-iOS.ipa
+          retention-days: 30
