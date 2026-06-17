@@ -34,7 +34,8 @@ class StepsAnalyticsTest {
 
     @Test
     fun handlesU16Wraparound() {
-        // 65500 -> 30 wraps: delta = 30 - 65500 = -65470, +65536 => 66 real steps; then 30 -> 90 => 60.
+        // 65500 -> 30 wraps: (30 - 65500) and 0xFFFF => 66 real steps (a small in-range increment, NOT a
+        // huge negative); then 30 -> 90 => 60. Both deltas are < the 512 guard so both count.
         val s = listOf(step(0, 65_500), step(60, 30), step(120, 90))
         assertEquals(66 + 60, stepsFor(s))
     }
@@ -53,12 +54,35 @@ class StepsAnalyticsTest {
     }
 
     @Test
-    fun dropsImplausibleResetDeltaAsReboot() {
-        // 100 -> 1000 (=900 real steps), then 1000 -> 50 is a counter reset/reboot: the
-        // wrap-corrected delta is 64586, implausibly large, so it is dropped rather than
-        // injecting tens of thousands of phantom steps. Only the 900 counts.
+    fun dropsBigGapDeltaAsBoundary() {
+        // 100 -> 1000 is a 900-tick jump (a sync-gap/disconnect boundary, not real 1 Hz steps), and
+        // 1000 -> 50 wrap-corrects to 64586. Both are >= the 512 guard, so both are dropped — the day
+        // has no in-range increment left, so the total is null (not an inflated number).
         val s = listOf(step(0, 100), step(60, 1_000), step(120, 50))
-        assertEquals(900, stepsFor(s))
+        assertNull(stepsFor(s))
+    }
+
+    @Test
+    fun jumpGuardDropsGapButKeepsRealSteps() {
+        // 100 -> 300 (=200 real) ; 300 -> 1200 is a 900-tick GAP (>= 512) and is dropped ; 1200 -> 1500
+        // (=300 real). Only the two in-range increments count => 200 + 300 = 500, the gap doesn't inflate.
+        val s = listOf(step(0, 100), step(60, 300), step(3_600, 1_200), step(3_660, 1_500))
+        assertEquals(500, stepsFor(s))
+    }
+
+    @Test
+    fun oldSummingOfRawByteOvercountsVsWrapAwareDiff() {
+        // THE BUG (#132/#276/#316). A realistic ascending cumulative counter sampled at 1 Hz. The OLD
+        // code summed the raw running total (byte @57 alone summed) — exploding the count; the NEW
+        // wrap-aware diff sums only the per-record increments and yields a sane number.
+        val counters = listOf(100, 127, 127, 130, 131, 131, 140, 152, 160, 175)
+        val samples = counters.mapIndexed { i, c -> step(i.toLong(), c) }
+        // NEW behaviour: sum of wrap-aware deltas == last - first (all small increments, none >= 512).
+        val sane = counters.last() - counters.first() // 75
+        assertEquals(sane, stepsFor(samples))
+        // OLD behaviour (summing the cumulative counter itself) would be vastly larger — prove the gap.
+        val oldOvercount = counters.sum() // 1373
+        org.junit.Assert.assertTrue(oldOvercount > sane * 10)
     }
 
     @Test
@@ -76,14 +100,14 @@ class StepsAnalyticsTest {
         val nightWindow = listOf(step(0, 100), step(60, 300)) // early only
         val fullDay = listOf(
             step(0, 100), step(60, 300),       // morning: 200
-            step(10 * 3_600, 1_000),           // evening samples present only in the full-day stream
-            step(11 * 3_600, 1_700),
+            step(10 * 3_600, 700),             // evening samples present only in the full-day stream
+            step(11 * 3_600, 1_100),
         )
         val total = AnalyticsEngine.analyzeDay(
             day = dayUtc, steps = nightWindow, daySteps = fullDay, profile = profile,
         ).daily.steps
-        // deltas over the full day: 100->300=200, 300->1000=700, 1000->1700=700 => 1600.
-        assertEquals(1_600, total)
+        // deltas over the full day: 100->300=200, 300->700=400, 700->1100=400 => 1000 (all < 512 guard).
+        assertEquals(1_000, total)
     }
 
     @Test

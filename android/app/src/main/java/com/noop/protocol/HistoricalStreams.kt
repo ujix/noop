@@ -275,6 +275,11 @@ private fun decodeWhoop5Historical(frame: ByteArray): Map<String, Any?>? {
     // @59 a per-step cadence-like byte (never 0; lower when moving faster). Raw — no unit asserted.
     frame.histU8(59)?.let { out["step_cadence"] = it }
     frame.histU8(63)?.let { if (it in 0..2) out["motion_wear_quality"] = it }
+    // @63 also reads as a small validated ACTIVITY-CLASS enum (community finding, #316): 0=still, 1=walk,
+    // 2=run, 0xFF=invalid. A lightweight, no-cloud per-record activity readout that rides alongside the
+    // step counter. Only the four known codes are surfaced — anything else (incl. 0xFF) stores nothing so
+    // an unmapped firmware can't inject garbage.
+    frame.histU8(63)?.let { if (it == 0 || it == 1 || it == 2) out["activity_class"] = it }
     // Auxiliary thermal readings adjacent to the main skin-temperature register, read off a digital
     // skin-temperature sensor. Carried raw; °C = raw/10. Signed i16, gated to a plausible thermal range
     // so a wrong offset on an unmapped layout stores nothing rather than garbage.
@@ -518,7 +523,10 @@ fun extractHistoricalStreams(
                 // step_motion_counter@57 is the WHOOP5 CUMULATIVE u16 counter (decoded but, until now,
                 // dropped). Stored raw; AnalyticsEngine derives the daily step total from counter deltas.
                 // APPROXIMATE — @57 semantics unverified vs the official app (see decodeWhoop5Historical). (#78)
-                p.intOrNull("step_motion_counter")?.let { c -> steps.add(StepRow(ts, c)) }
+                // activity_class@63 (0=still/1=walk/2=run) rides on the same record — null when invalid/absent.
+                p.intOrNull("step_motion_counter")?.let { c ->
+                    steps.add(StepRow(ts, c, activityClass = p.intOrNull("activity_class")))
+                }
                 p.intOrNull("resp_rate_raw")?.let { raw -> resp.add(RespRow(ts, raw)) }
                 p.doubleOrNull("gravity_x")?.let { gx ->
                     gravity.add(

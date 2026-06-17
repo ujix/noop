@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "4.5.2"
+    static let currentVersion = "4.5.3"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,14 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "4.5.3",
+            title: "Sleep fix for WHOOP 4.0 + accurate WHOOP 5/MG steps",
+            date: "June 2026",
+            items: [
+                "**WHOOP 4.0: a real night is no longer dropped.** The off-wrist guard added in 4.5.0 could mistake a 4.0's sparse, motion-reconstructed sleep heart-rate for time off the wrist and skip the whole night. It now only treats heart-rate gaps as \"off-wrist\" when your heart-rate is dense enough for a gap to actually mean something — so 4.0 nights track again, while the strap-on-a-desk case it was meant to catch still works. *(Thanks Mindfulpaths for catching it — #507.)*",
+                "**WHOOP 5/MG: steps are accurate now.** The strap's step counter is a *running total*, not a per-reading count — adding it up the old way could over-report steps many times over. NOOP now reads the full counter and adds only the real increases, so your daily step number is sane. It also reads a simple still / walking / running activity signal from the same data, with no cloud. *(Thanks j0b-dev for the analysis — #276 / #316.)*",
+            ]),
         Release(
             version: "4.5.2",
             title: "Honest labelling for WHOOP 5/MG deep-data diagnostics",

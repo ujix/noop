@@ -322,29 +322,30 @@ object AnalyticsEngine {
         )
 
         // ── Steps (APPROXIMATE) ───────────────────────────────────────────────
-        // step_motion_counter@57 is a CUMULATIVE u16 running counter. The daily total is the SUM of
-        // positive consecutive deltas across the day's samples (already ts-ASC from the DAO). u16
-        // wraparound: a negative delta means the counter rolled past 65535, so add 65536. The day's
-        // read window may include adjacent-day samples, so filter to the LOCAL-day key
-        // dayString(ts, tzOffset)==day first (#277). ESTIMATE only — not cloud/clinical parity.
+        // step_motion_counter@57 is a CUMULATIVE u16 running counter (it climbs while you move, holds
+        // flat when still, and wraps at 65536). The daily total is the SUM of WRAP-AWARE increments of
+        // that counter across the time-ordered 1 Hz records (already ts-ASC from the DAO): delta =
+        // (cur - prev) and 0xFFFF. The first record has no predecessor (contributes 0). The day's read
+        // window may include adjacent-day samples, so filter to the LOCAL-day key
+        // dayString(ts, tzOffset)==day first (#277).
+        //
+        // Reading byte @57 ALONE and summing it (the old bug, #132/#276/#316: exzanimo saw ~24× too
+        // many steps) both ignored the high byte and summed a running total — exploding the count to
+        // ~10M/day. Decoding the full u16 and summing wrap-aware DELTAS yields a sane ~14k. ESTIMATE
+        // only — not cloud/clinical parity.
         val stepsTotal: Int? = run {
             // Prefer the full-calendar-day stream for the additive total; fall back to the
             // night-window stream when the caller didn't supply one (pure-function callers/tests).
             val sorted = (daySteps ?: steps).filter { dayString(it.ts, tzOffsetSeconds) == day }.sortedBy { it.ts }
             if (sorted.size < 2) return@run null
-            // A firmware reboot resets the counter and is byte-indistinguishable from a u16 wrap.
-            // A genuine wrap yields a SMALL corrected delta (the steps since the last record); a
-            // reset-from-low yields a huge one. Cap each corrected delta so a reboot can't inject
-            // tens of thousands of phantom steps (30k steps between two history records is
-            // implausible for any reasonable sampling cadence). Heuristic — partial, since a reset
-            // from a HIGH prior count still looks like a small wrap; tune once @57's cadence is
-            // validated on hardware.
-            val maxStepDelta = 30_000
+            // A delta this large is a big time-gap / disconnect boundary between sync sessions (or a
+            // firmware reboot, byte-indistinguishable from a wrap), NOT real steps — drop it so gaps
+            // don't inflate the total. Real 1 Hz motion never ticks this fast between adjacent records.
+            val maxStepDelta = 512
             var total = 0L
             for (i in 1 until sorted.size) {
-                var delta = sorted[i].counter - sorted[i - 1].counter
-                if (delta < 0) delta += 65_536 // u16 wraparound
-                if (delta in 1..maxStepDelta) total += delta // drop implausible deltas as resets
+                val delta = (sorted[i].counter - sorted[i - 1].counter) and 0xFFFF // wrap-aware u16 increment
+                if (delta in 1 until maxStepDelta) total += delta // ignore a delta >= 512 (gap/reset)
             }
             if (total <= 0L) return@run null
             // @57 counts motion ticks, not validated steps — the 5/MG counter overcounts. Divide

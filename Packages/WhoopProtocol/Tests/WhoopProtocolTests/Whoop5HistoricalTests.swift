@@ -73,9 +73,35 @@ final class Whoop5HistoricalTests: XCTestCase {
         let dyn = p["dynamic_acceleration"]?.doubleValue ?? -1
         XCTAssertTrue((0.0...8.0).contains(dyn))
         XCTAssertEqual(dyn, 0.0092, accuracy: 0.001)
-        // cumulative motion counter + wear/contact quality enum.
+        // cumulative motion counter (full u16 at [57:59], not byte @57 alone) + wear/contact quality enum.
         XCTAssertEqual(p["step_motion_counter"]?.intValue, 50)
         XCTAssertEqual(p["motion_wear_quality"]?.intValue, 0)
+        // @63 also reads as the activity-class enum (#316): this worn-still frame's byte is 0 => still.
+        XCTAssertEqual(p["activity_class"]?.intValue, 0)
+    }
+
+    /// Flip a single absolute frame byte to a new value (CRC is not re-checked — the field tests read
+    /// `.parsed`, which `parseFrame` populates regardless of CRC).
+    private func mutating(_ index: Int, to value: UInt8) -> [UInt8] {
+        var b = bytes(historicalHex); b[index] = value; return b
+    }
+
+    func testHistoricalV18ActivityClassEnum() {
+        // @63 is a small validated activity-class enum: 0=still, 1=walk, 2=run, 0xFF=invalid (#316).
+        // The four known codes map through; 0xFF and any other value store nothing (nil).
+        XCTAssertEqual(parseFrame(mutating(63, to: 0), family: .whoop5).parsed["activity_class"]?.intValue, 0) // still
+        XCTAssertEqual(parseFrame(mutating(63, to: 1), family: .whoop5).parsed["activity_class"]?.intValue, 1) // walk
+        XCTAssertEqual(parseFrame(mutating(63, to: 2), family: .whoop5).parsed["activity_class"]?.intValue, 2) // run
+        XCTAssertNil(parseFrame(mutating(63, to: 0xFF), family: .whoop5).parsed["activity_class"]?.intValue)   // invalid
+        XCTAssertNil(parseFrame(mutating(63, to: 7), family: .whoop5).parsed["activity_class"]?.intValue)      // unknown
+    }
+
+    func testHistoricalV18StepCounterIsFullU16NotLowByte() {
+        // The over-count bug (#132/#276): @57 must decode as the FULL little-endian u16 at [57:59], so the
+        // high byte @58 is honoured. The fixture's low byte @57 is 0x32 (50); setting high byte @58 = 0x01
+        // must read 0x0132 (= 306), NOT the low byte 50 alone.
+        let b = mutating(58, to: 0x01)
+        XCTAssertEqual(parseFrame(b, family: .whoop5).parsed["step_motion_counter"]?.intValue, 0x0132)
     }
 
     func testHistoricalV18ObservedFields() {

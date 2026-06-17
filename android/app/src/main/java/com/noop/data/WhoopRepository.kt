@@ -41,8 +41,13 @@ data class EventEntry(val ts: Long, val kind: String, val payloadJSON: String)
 data class BatteryRow(val ts: Long, val soc: Double?, val mv: Int?, val charging: Boolean? = null)
 data class Spo2Row(val ts: Long, val red: Int, val ir: Int)
 data class SkinTempRow(val ts: Long, val raw: Int)
-/** Cumulative u16 step/motion counter at [ts] (WHOOP5 step_motion_counter@57). deviceId attached on insert. (#78) */
-data class StepRow(val ts: Long, val counter: Int)
+/**
+ * Cumulative u16 step/motion counter at [ts] (WHOOP5 step_motion_counter@57). deviceId attached on insert. (#78)
+ * [activityClass] is the per-record activity-class enum from @63 (community finding #316): 0=still, 1=walk,
+ * 2=run; null when the byte was 0xFF/invalid or absent. Optional + defaulted so existing call sites and the
+ * persisted store (which carries only ts/counter today) are unchanged.
+ */
+data class StepRow(val ts: Long, val counter: Int, val activityClass: Int? = null)
 data class RespRow(val ts: Long, val raw: Int)
 data class GravityRow(val ts: Long, val x: Double, val y: Double, val z: Double)
 /** HR derived from the v26 PPG waveform: [ts] window-centre sec, [bpm], [conf] in 0…1. (#156) */

@@ -44,9 +44,41 @@ class Whoop5HistoricalDecodeTest {
 
         // Per-second biometric fields (verified vs the real frame).
         assertEquals(3057, p["skin_temp_raw"]) // 30.57 °C
+        // @57 decodes as the FULL little-endian u16 at [57:59], not byte @57 alone (the over-count fix).
         assertEquals(50, p["step_motion_counter"])
         assertEquals(0, p["motion_wear_quality"])
+        // @63 also reads as the activity-class enum (#316): this worn-still frame's byte is 0 => still.
+        assertEquals(0, p["activity_class"])
         assertTrue((p["dynamic_acceleration"] as Double) in 0.0..8.0)
+    }
+
+    /** Mutate one absolute frame byte and re-stamp the CRC32 (over frame[8..len-4]) so it passes the gate. */
+    private fun mutateAndReCrc(index: Int, value: Int): ByteArray {
+        val f = bytes(wornV18); f[index] = value.toByte()
+        val end = f.size - 4
+        val crc = Crc.crc32(f.copyOfRange(8, end))
+        f[end] = (crc and 0xFF).toByte(); f[end + 1] = ((crc shr 8) and 0xFF).toByte()
+        f[end + 2] = ((crc shr 16) and 0xFF).toByte(); f[end + 3] = ((crc shr 24) and 0xFF).toByte()
+        return f
+    }
+
+    @Test
+    fun decodesV18ActivityClassEnum() {
+        // @63 is a small validated activity-class enum: 0=still, 1=walk, 2=run, 0xFF=invalid (#316).
+        // The four known codes map through; 0xFF and any other value store nothing (null).
+        assertEquals(0, decodeHistorical(mutateAndReCrc(63, 0), DeviceFamily.WHOOP5)!!["activity_class"]) // still
+        assertEquals(1, decodeHistorical(mutateAndReCrc(63, 1), DeviceFamily.WHOOP5)!!["activity_class"]) // walk
+        assertEquals(2, decodeHistorical(mutateAndReCrc(63, 2), DeviceFamily.WHOOP5)!!["activity_class"]) // run
+        assertNull(decodeHistorical(mutateAndReCrc(63, 0xFF), DeviceFamily.WHOOP5)!!["activity_class"])   // invalid
+        assertNull(decodeHistorical(mutateAndReCrc(63, 7), DeviceFamily.WHOOP5)!!["activity_class"])      // unknown
+    }
+
+    @Test
+    fun stepCounterIsFullU16NotLowByte() {
+        // The over-count bug (#132/#276): @57 must decode as the FULL little-endian u16 at [57:59], so the
+        // high byte @58 is honoured. The fixture's low byte @57 is 0x32 (50); setting high byte @58 = 0x01
+        // must read 0x0132 (= 306), NOT the low byte 50 alone.
+        assertEquals(0x0132, decodeHistorical(mutateAndReCrc(58, 0x01), DeviceFamily.WHOOP5)!!["step_motion_counter"])
     }
 
     @Test

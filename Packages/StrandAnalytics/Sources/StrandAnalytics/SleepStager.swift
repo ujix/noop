@@ -145,6 +145,17 @@ public enum SleepStager {
     /// while still dropping an all-day desk strap (≈100% gap) or a session genuinely spent off-wrist.
     public static let maxOffWristSleepFraction: Double = 0.5
 
+    /// Minimum average HR-stream density for the off-wrist HR-gap proxy to be trusted (#507). The proxy
+    /// reads a >`offWristHRGapMin`-minute hole in HR as "off the wrist" — valid only when HR is otherwise
+    /// dense (live 5/MG, or a worn night with continuous HR), so a real gap is anomalous. A WHOOP 4.0's
+    /// SYNCED night is reconstructed mostly from MOTION with sparse, derived HR, whose natural gaps would
+    /// otherwise read as off-wrist and wrongly DROP a real night. So if the HR stream averages fewer than
+    /// one sample per this many seconds, we don't assert off-wrist from gaps at all (WRIST_OFF events
+    /// still apply). Self-consistent: a night sparse enough to be >50% gap-covered is, by definition,
+    /// below this density, so it is spared. Measured over the whole stream, so an off-wrist HOLE inside an
+    /// otherwise dense, worn day (#500) is still caught.
+    static let hrDenseSpacingS: Int = 600   // one HR sample per 10 minutes, averaged over the stream
+
     // MARK: - Sparse-gravity robustness (#308)
 
     // On an un-unlocked WHOOP 5.0 the strap backfills mostly v18/v26 records where gravity is
@@ -488,6 +499,13 @@ public enum SleepStager {
     /// off-wrist without HR). These spans are UNIONed with the WRIST_OFF intervals by `offWristFraction`.
     static func offWristHRGapSpans(_ p: Period, hr: [HRSample]) -> [(start: Int, end: Int)] {
         if hr.isEmpty || p.end <= p.start { return [] }
+        // Density gate (#507): only trust the HR-gap off-wrist proxy when the HR STREAM is dense enough
+        // that a long gap is anomalous. A WHOOP 4.0 synced night is motion-reconstructed with sparse HR,
+        // so its natural gaps must NOT read as off-wrist (that wrongly dropped a real night). Judge over
+        // the whole stream so an off-wrist HOLE inside an otherwise dense, worn day (#500) is still caught.
+        let sortedAll = hr.sorted { $0.ts < $1.ts }
+        let streamSpan = sortedAll[sortedAll.count - 1].ts - sortedAll[0].ts
+        if streamSpan >= hrDenseSpacingS && hr.count < streamSpan / hrDenseSpacingS { return [] }
         let gapS = offWristHRGapMin * 60
         let seg = hr.filter { $0.ts >= p.start && $0.ts <= p.end }.sorted { $0.ts < $1.ts }
         // No HR anywhere inside a run long enough to matter → the whole period is one gap.

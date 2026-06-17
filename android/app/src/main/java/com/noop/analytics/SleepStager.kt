@@ -162,6 +162,18 @@ object SleepStager {
      */
     const val maxOffWristSleepFraction: Double = 0.5
 
+    /**
+     * Minimum average HR-stream density for the off-wrist HR-gap proxy to be trusted (#507). The proxy
+     * reads a >[offWristHRGapMin]-minute hole in HR as "off the wrist" — valid only when HR is otherwise
+     * dense. A WHOOP 4.0's SYNCED night is reconstructed mostly from MOTION with sparse, derived HR, whose
+     * natural gaps would otherwise read as off-wrist and wrongly DROP a real night. So if the HR stream
+     * averages fewer than one sample per this many seconds, we don't assert off-wrist from gaps at all
+     * (WRIST_OFF events still apply). Self-consistent: a night sparse enough to be >50% gap-covered is, by
+     * definition, below this density, so it is spared. Measured over the whole stream, so an off-wrist HOLE
+     * inside an otherwise dense, worn day (#500) is still caught. Mirrors Swift.
+     */
+    const val hrDenseSpacingS: Int = 600   // one HR sample per 10 minutes, averaged over the stream
+
     // ── Sparse-gravity robustness (#308) ──────────────────────────────────────
     //
     // On an un-unlocked WHOOP 5.0 the strap backfills mostly v18/v26 records where gravity is
@@ -554,6 +566,13 @@ object SleepStager {
      */
     internal fun offWristHRGapSpans(p: Period, hr: List<HrSample>): List<Pair<Long, Long>> {
         if (hr.isEmpty() || p.end <= p.start) return emptyList()
+        // Density gate (#507): only trust the HR-gap off-wrist proxy when the HR STREAM is dense enough
+        // that a long gap is anomalous. A WHOOP 4.0 synced night is motion-reconstructed with sparse HR,
+        // so its natural gaps must NOT read as off-wrist (that wrongly dropped a real night). Judge over
+        // the whole stream so an off-wrist HOLE inside an otherwise dense, worn day (#500) is still caught.
+        val sortedAll = hr.sortedBy { it.ts }
+        val streamSpan = sortedAll.last().ts - sortedAll.first().ts
+        if (streamSpan >= hrDenseSpacingS && hr.size < streamSpan / hrDenseSpacingS) return emptyList()
         val gapS = (offWristHRGapMin * 60).toLong()
         val seg = hr.filter { it.ts in p.start..p.end }.sortedBy { it.ts }
         // No HR anywhere inside a run long enough to matter → the whole period is one gap.

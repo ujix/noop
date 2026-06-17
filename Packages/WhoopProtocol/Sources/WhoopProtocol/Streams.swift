@@ -79,11 +79,17 @@ public struct GravitySample: Equatable, Codable {
 
 /// WHOOP 5/MG cumulative u16 step / motion counter (step_motion_counter@57). APPROXIMATE — the @57
 /// step semantics are unverified against the official WHOOP app (#78). Mirrors Android StepSample.
+///
+/// `activityClass` is the per-record activity-class enum decoded from @63 (community finding #316):
+/// 0=still, 1=walk, 2=run; nil when the byte was 0xFF/invalid or absent. A lightweight, no-cloud
+/// activity readout that rides alongside the counter. Optional + defaulted so existing call sites and
+/// the persisted store (which carries only ts/counter today) are unchanged.
 public struct StepSample: Equatable, Codable {
     public let ts: Int
     public let counter: Int
-    public init(ts: Int, counter: Int) {
-        self.ts = ts; self.counter = counter
+    public let activityClass: Int?
+    public init(ts: Int, counter: Int, activityClass: Int? = nil) {
+        self.ts = ts; self.counter = counter; self.activityClass = activityClass
     }
 }
 

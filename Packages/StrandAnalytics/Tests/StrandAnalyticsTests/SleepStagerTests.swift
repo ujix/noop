@@ -330,6 +330,28 @@ final class SleepStagerTests: XCTestCase {
         XCTAssertEqual(kept.count, 1, "a brief (<50%) WRIST_OFF blip must NOT drop a real worn night")
     }
 
+    /// #507 — the off-wrist HR-gap proxy must NOT drop a real night that simply has SPARSE heart rate.
+    /// A WHOOP 4.0's synced night is motion-reconstructed with thin, derived HR, so it's naturally full
+    /// of >20-min HR gaps; the proxy would otherwise read it as ~100% off-wrist and drop a real night
+    /// (the regression a 4.0 owner hit after upgrading). The density gate disables the proxy when the
+    /// stream averages fewer than one sample per `hrDenseSpacingS`, so the fraction is 0 and it's kept —
+    /// while explicit WRIST_OFF events remain authoritative regardless of HR density.
+    func testSparseHRNightDisablesOffWristProxy_507() {
+        let p = SleepStager.Period(stage: "sleep", start: 0, end: 5_400)   // 90-min night
+        // HR every 25 min → 4 samples, gaps of 1500 s (≥ 20 min): under the OLD logic almost entirely
+        // "off-wrist". Density = 4 samples over a 4500 s span < 4500/600 = 7 ⇒ proxy disabled.
+        let sparse = [0, 1_500, 3_000, 4_500].map { HRSample(ts: $0, bpm: 52) }
+        XCTAssertTrue(SleepStager.offWristHRGapSpans(p, hr: sparse).isEmpty,
+                      "sparse HR (motion-reconstructed 4.0 night) must NOT register off-wrist gap spans")
+        XCTAssertEqual(SleepStager.offWristFraction(p, hr: sparse, wristOff: []), 0.0, accuracy: 1e-9,
+                       "a sparse-HR real night must read 0% off-wrist, so it is never dropped (#507)")
+        // An explicit WRIST_OFF interval still drops a genuinely off-wrist sparse night (events are
+        // independent of the density gate): [0, 3000) over 5400 s = ~55% ≥ maxOffWristSleepFraction.
+        XCTAssertGreaterThanOrEqual(
+            SleepStager.offWristFraction(p, hr: sparse, wristOff: [(start: 0, end: 3_000)]), 0.5,
+            "WRIST_OFF events remain authoritative regardless of HR density")
+    }
+
     /// The fractional helpers are precise about the threshold, edges, and the union. `offWristHRGapSpans`
     /// returns the ≥20-min gaps as concrete spans; `offWristFraction` divides their union (with the
     /// wrist-off intervals) by duration; a run with NO HR at all leaves the gravity-only path alone.

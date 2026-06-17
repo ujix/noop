@@ -169,4 +169,33 @@ class SleepStagerOffWristTest {
         assertTrue(SleepStager.offWristHRGapSpans(p, emptyList()).isEmpty())
         assertEquals(0.0, SleepStager.offWristFraction(p, emptyList(), emptyList()), 1e-9)
     }
+
+    /**
+     * #507 — the off-wrist HR-gap proxy must NOT drop a real night that simply has SPARSE heart rate
+     * (a WHOOP 4.0's synced night is motion-reconstructed with thin, derived HR, so it's naturally full
+     * of >20-min gaps). The density gate disables the proxy below one sample per [hrDenseSpacingS], so the
+     * fraction is 0 and the night is kept — while explicit WRIST_OFF events remain authoritative. Twin of
+     * Swift testSparseHRNightDisablesOffWristProxy_507.
+     */
+    @Test
+    fun sparseHRNightDisablesOffWristProxy507() {
+        val p = SleepStager.Period(stage = "sleep", start = 0L, end = 5_400L) // 90-min night
+        // HR every 25 min → 4 samples, gaps of 1500 s (≥ 20 min): under the OLD logic almost entirely
+        // "off-wrist". Density = 4 samples over a 4500 s span < 4500/600 = 7 ⇒ proxy disabled.
+        val sparse = listOf(0L, 1_500L, 3_000L, 4_500L).map { HrSample(deviceId = dev, ts = it, bpm = 52) }
+        assertTrue(
+            "sparse HR (motion-reconstructed 4.0 night) must NOT register off-wrist gap spans",
+            SleepStager.offWristHRGapSpans(p, sparse).isEmpty(),
+        )
+        assertEquals(
+            "a sparse-HR real night must read 0% off-wrist, so it is never dropped (#507)",
+            0.0, SleepStager.offWristFraction(p, sparse, emptyList()), 1e-9,
+        )
+        // An explicit WRIST_OFF interval still drops a genuinely off-wrist sparse night (events are
+        // independent of the density gate): [0, 3000) over 5400 s = ~55% ≥ maxOffWristSleepFraction.
+        assertTrue(
+            "WRIST_OFF events remain authoritative regardless of HR density",
+            SleepStager.offWristFraction(p, sparse, listOf(0L to 3_000L)) >= 0.5,
+        )
+    }
 }
