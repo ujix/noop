@@ -26,7 +26,6 @@
 </p>
 
 <p align="center">
-  <a href="#keeping-noop-alive">â™¥&nbsp;Support</a> آ·
   <a href="#download">â¬‡&nbsp;Download</a> آ·
   <a href="https://github.com/ujix/noop/wiki/FAQ">â‌“&nbsp;FAQ</a> آ·
   <a href="https://www.reddit.com/r/NOOPApp/">ًں’¬&nbsp;Community</a> آ·
@@ -46,37 +45,24 @@
 
 ---
 
-## Keeping NOOP alive
 
-NOOP is **free, forever** â€” no account, no cloud, no subscription, every feature unlocked, no nag. That doesn't change.
-
-But here's the honest reality, up front: **NOOP is built and maintained by one person, out of pocket.** Building interoperability support for WHOOP's hardware â€” and keeping up as its firmware changes â€” takes real time and real test hardware. **The project continues if the people who use it help fund it. If that doesn't happen, it can't.** No drama, no guilt â€” just the maths of an unfunded project.
-
-ًں“° **Featured in** [AOL](https://www.aol.com/articles/open-source-app-lets-whoop-231700000.html) آ· [Yahoo](https://tech.yahoo.com/wearables/articles/open-source-app-lets-whoop-081754863.html) آ· [Android Authority](https://www.androidauthority.com/open-source-whoop-app-3673542/) آ· [TechRadar](https://www.techradar.com/health-fitness/fitness-trackers/this-looks-awesome-theres-now-an-unofficial-open-source-app-for-reading-whoop-data-that-doesnt-need-a-subscription) آ· [BGR](https://www.bgr.com/2193528/noop-app-use-whoop-band-without-subscription-fee/) آ· [Android Central](https://www.androidcentral.com/wearables/this-open-source-app-lets-you-use-your-whoop-without-a-monthly-fee) آ· [Android Police](https://www.androidpolice.com/i-tried-open-source-whoop-app/) آ· [Notebookcheck](https://www.notebookcheck.net/Whoop-users-could-soon-be-free-from-expensive-subscriptions-thanks-to-this-open-source-app.1314364.0.html) آ· [Trusted Reviews](https://www.trustedreviews.com/news/this-open-source-app-could-let-whoop-users-ditch-the-subscription) â€” **and used by thousands.** If even a small fraction of them tipped, NOOP's future would be secure for a long time to come.
-
-If NOOP saves you a subscription, or you just want WHOOP 5.0/MG support finished and the work to keep going, **chipping in is what genuinely decides that.** It's optional, one-off, and tied to nothing about your data or access â€” there's no server and no record of who has or hasn't.
-
-### How to donate â€” 2 minutes, even if you've never touched crypto
-
-Donations are **crypto-only**, on purpose: staying anonymous (for the project *and* for you) rules out PayPal, Patreon, or anything with a name attached. If you don't already hold any:
-
-1. **Install a mainstream exchange app** â€” Coinbase, Binance, Kraken, or **Cash App** (Cash App handles Bitcoin directly).
-2. **Buy some Bitcoin (BTC) or Ethereum (ETH)** â€” a suggested **$50+** genuinely keeps the project alive (it's a fraction of a year's WHOOP subscription). Anything is appreciated, but $50+ is what moves the needle.
-3. **Tap Send / Withdraw, paste the matching address below, and send.** That's it. (Only ever send a coin to its own network.)
-
-| Coin | Network | Address |
-|---|---|---|
-| **BTC** | Bitcoin | `bc1qn2gkl7wslwpws06mvazjn2uu689zlkv7kg3kf5` |
-| **ETH** | Ethereum | `0xd64D508b531c4b1297Ca4023C774e0E97aA67B7F` |
-| **ADA** | Cardano | `addr1qxsju3y0mlke2h6h2g6qgnq4r3jstngtyjxs0nnp5zrv28zv8p5rgzruxyjz33j9k23pffta8z639e2snjdd4vcetfqsn4vwr3` |
-| **XRP** | XRP Ledger | `rpvijHi2nVY9WWAJhojsAX5tJmHdmLtFhq` |
-
-Each address also has a scan-to-donate **QR code** in the app under **Support** (and they're listed in [`docs/DONATIONS.md`](docs/DONATIONS.md)). *Always copy the full address and double-check the first and last characters; crypto transactions are irreversible, and only ever send a coin to its own network.*
-
-**Can't or would rather not?** Also genuinely valued: **â­گ star this repo**, file a good bug report, share a strap log, test on hardware you own, or just tell another WHOOP user. That moves NOOP forward too. **Want to help directly? â†’ [Roadmap & help wanted](https://github.com/ujix/noop/issues/132)** lists exactly what we need â€” some of NOOP's biggest blockers are data only your strap can provide (a single raw frame capture can unlock a feature for everyone on that firmware).
-
----
-
+> [!IMPORTANT]
+> **Legal Notice — Community Fork & Interoperability Disclaimer**
+>
+> This repository is an **independent community fork** of the open-source [NOOP project](https://github.com/NoopApp/noop). It is **not affiliated with, endorsed by, or connected to WHOOP, Inc.** in any way. "WHOOP" is a registered trademark of WHOOP, Inc., used here solely in a nominative sense to identify the third-party hardware this software interoperates with.
+>
+> **Reverse-engineering and interoperability rights.** The protocol support in this project was derived through clean-room reverse engineering of the Bluetooth Low Energy (BLE) interface exposed by WHOOP hardware to any device in range. This work is protected under:
+> - **17 U.S.C. § 1201(f)** (DMCA) — which explicitly permits reverse engineering of lawfully obtained software/hardware to achieve interoperability with independently created programs;
+> - **17 U.S.C. § 107** — fair use for research and educational purposes;
+> - **EU Directive 2009/24/EC, Article 6** — the software interoperability exception applicable in EU member states.
+>
+> Landmark precedent supporting these rights includes *Sega Enterprises Ltd. v. Accolade, Inc.*, 977 F.2d 1510 (9th Cir. 1992) and *Sony Computer Entertainment, Inc. v. Connectix Corp.*, 203 F.3d 596 (9th Cir. 2000).
+>
+> **No proprietary assets.** This repository contains **no WHOOP proprietary source code, firmware, cryptographic keys, DRM mechanisms, or copyrighted assets**. No copy-protection or access-control measure is circumvented. Users access only data generated by their own hardware, on their own devices, without routing it through any third-party server.
+>
+> **Not a medical device.** Health metrics produced by this software are approximations for personal informational use only. They are not clinically validated and do not constitute medical advice. Consult a qualified healthcare professional before making health decisions.
+>
+> Provided **as-is** with **no warranty**, for **personal and non-commercial use** under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 ## Download
 
 Pre-built apps you can run right now:
@@ -597,3 +583,11 @@ protocol alongside us â€” this project is built on it.
 If NOOP's useful to you, a â­گ genuinely helps it reach more WHOOP users â€” and it's the single best free way to support the project.
 
 [![Star History Chart](https://api.star-history.com/svg?repos=ujix/noop&type=Date)](https://star-history.com/#ujix/noop&Date)
+
+---
+
+## Credits
+
+This repository is a community fork of **[NOOP](https://github.com/NoopApp/noop)**, originally created and maintained by the anonymous developer behind the [NoopApp](https://github.com/NoopApp) GitHub organization. All core design, protocol reverse-engineering, analytics engine, and application architecture are their work. This fork exists solely to provide community-maintained builds and CI infrastructure.
+
+If you find NOOP useful, consider supporting the original creator — donation addresses are listed in the original repository.
