@@ -87,8 +87,10 @@ jobs:
           STORE_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
           KEY_PASS:   ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          SP=$(printf '%s' "$STORE_PASS" | tr -d '\n\r\t ')
+          KP=$(printf '%s' "$KEY_PASS"   | tr -d '\n\r\t ')
           printf 'storeFile=noop-release.jks\nstorePassword=%s\nkeyAlias=noop-release\nkeyPassword=%s\n' \
-            "$STORE_PASS" "$KEY_PASS" > keystore.properties
+            "$SP" "$KP" > keystore.properties
 
       - name: Build release APK
         run: ./gradlew assembleFullRelease
