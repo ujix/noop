@@ -77,19 +77,32 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
-        run: ./gradlew assembleFullDebug
+      - name: Decode release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: echo "$KEYSTORE_B64" | base64 -d > noop-release.jks
+
+      - name: Write keystore.properties
+        env:
+          STORE_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASS:   ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          printf 'storeFile=noop-release.jks\nstorePassword=%s\nkeyAlias=noop-release\nkeyPassword=%s\n' \
+            "$STORE_PASS" "$KEY_PASS" > keystore.properties
+
+      - name: Build release APK
+        run: ./gradlew assembleFullRelease
 
       - name: Rename APK
         run: |
-          mv app/build/outputs/apk/full/debug/app-full-debug.apk \
-             app/build/outputs/apk/full/debug/Noop-${{ needs.setup.outputs.version }}.apk
+          mv app/build/outputs/apk/full/release/app-full-release.apk \
+             app/build/outputs/apk/full/release/Noop-${{ needs.setup.outputs.version }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: noop-android-${{ github.sha }}
-          path: android/app/build/outputs/apk/full/debug/Noop-${{ needs.setup.outputs.version }}.apk
+          path: android/app/build/outputs/apk/full/release/Noop-${{ needs.setup.outputs.version }}.apk
           retention-days: 30
 
   # ─── macOS .app + iOS .ipa ──────────────────────────────────────────────────
@@ -182,7 +195,7 @@ jobs:
             echo ""
             echo "| Platform | File | Notes |"
             echo "|---|---|---|"
-            echo "| Android | \`Noop-${VERSION}.apk\` | Debug-signed; sideload directly |"
+            echo "| Android | \`Noop-${VERSION}.apk\` | Release-signed; sideload directly |"
             echo "| iOS | \`Noop-iOS-${VERSION}.ipa\` | Unsigned — install via AltStore |"
             echo "| macOS | \`Noop-macOS-${VERSION}.zip\` | Unsigned .app; right-click → Open |"
           } > /tmp/release-notes.md
