@@ -674,7 +674,7 @@ final class SleepStagerTests: XCTestCase {
     }
 
     func testGravitySparseGateConditions() {
-        // The gate trips on EITHER a short gravity span vs HR span OR a large median gravity gap.
+        // The gate trips on EITHER a short gravity span vs HR span OR any inter-sample gravity gap > maxGapMin.
         let start = 6_000_000
         let hr = hrStream(start: start, durationS: 6 * 60 * 60, bpm: 50)
 
@@ -682,9 +682,9 @@ final class SleepStagerTests: XCTestCase {
         let clumped = stillGravity(start: start, durationS: 30 * 60)
         XCTAssertTrue(SleepStager.isGravitySparse(clumped, hr: hr), "short gravity span → sparse")
 
-        // (b) Median-gap test: gravity spans the night but every gap is 25 min (> 20 min).
+        // (b) Large-gap test: gravity spans the night but every gap is 25 min (> maxGapMin).
         let bigGaps = sparseStillGravity(start: start, durationS: 6 * 60 * 60, everyS: 25 * 60)
-        XCTAssertTrue(SleepStager.isGravitySparse(bigGaps, hr: hr), "large median gap → sparse")
+        XCTAssertTrue(SleepStager.isGravitySparse(bigGaps, hr: hr), "a large inter-sample gap → sparse")
 
         // (c) Dense gravity over the same span is NOT sparse.
         let dense = stillGravity(start: start, durationS: 6 * 60 * 60)
@@ -692,6 +692,37 @@ final class SleepStagerTests: XCTestCase {
 
         // (d) Degenerate HR (<2 samples) keeps the dense path regardless of gravity.
         XCTAssertFalse(SleepStager.isGravitySparse(bigGaps, hr: []), "no HR span → keep dense path")
+
+        // (e) #28: gravity SPANS the night (span gate stays dense) with a ~1 s MEDIAN gap (dense
+        // bursts) but a single >maxGapMin dropout — the median test misses it, the max-gap test
+        // catches it. Two 160-min blocks split by a 40-min dropout cover the whole 6 h HR window.
+        let clumpedBigGap = stillGravity(start: start, durationS: 160 * 60)
+            + stillGravity(start: start + (160 + 40) * 60, durationS: 160 * 60)
+        XCTAssertTrue(SleepStager.isGravitySparse(clumpedBigGap, hr: hr),
+                      "clumped gravity + one long dropout (small median, large max) → sparse")
+    }
+
+    func testClumpedGravityWithLongDropoutBridged_28() {
+        // #28: WHOOP 4.0 motion arrives CLUMPED — two dense 40-min still blocks split by a 30-min
+        // dropout, the gravity spanning the whole HR window. The block-internal gaps are ~1 s so the
+        // MEDIAN gate stays dense and the span gate doesn't fire; only the new max-gap arm catches the
+        // dropout. With sleep-band HR across the gap the night is bridged into ONE session instead of
+        // two dropped sub-minSleepMin fragments (~0 sleep) under the old median-only gate.
+        let start = nightStart(02)
+        let block = 40 * 60
+        let gap = 30 * 60
+        let grav = stillGravity(start: start, durationS: block)
+            + stillGravity(start: start + block + gap, durationS: block)
+        let dur = 2 * block + gap                       // HR spans the whole window
+        let hr = hrStream(start: start, durationS: dur, bpm: 50)
+
+        XCTAssertTrue(SleepStager.isGravitySparse(grav, hr: hr),
+                      "clumped motion with a long dropout (small median, large max gap) must read as sparse")
+        let sessions = SleepStager.detectSleep(hr: hr, gravity: grav)
+        XCTAssertEqual(sessions.count, 1,
+                       "the dropout must be bridged into ONE session — not dropped sub-60-min fragments")
+        XCTAssertGreaterThan(Double(sessions[0].end - sessions[0].start), Double(2 * block),
+                             "the bridged session must span both blocks across the dropout")
     }
 
     func testSessionAvgHRVRejectsEctopicSpikes() {

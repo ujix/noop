@@ -6,6 +6,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.noop.BuildConfig
+import com.noop.ble.PuffinExperiment
 import java.io.File
 
 /**
@@ -95,20 +96,33 @@ object LogExport {
     }
 
     /**
+     * Empty-state message when there's no raw capture to include (#32). Accurate per device + toggle:
+     * a 4.0 can never produce one (5/MG-only feature); a 5/MG needs the toggle on + a history sync;
+     * if the toggle is already on, don't tell them to enable it again. `sharingLog` adds the log tail.
+     */
+    private fun noCaptureMsg(context: Context, whoop5Connected: Boolean, sharingLog: Boolean): String {
+        val tail = if (sharingLog) " Sharing the strap log." else ""
+        return when {
+            !whoop5Connected ->
+                "Raw capture records WHOOP 5/MG history syncs and doesn't apply to WHOOP 4.0 (already fully decoded).$tail"
+            !PuffinExperiment.from(context).isCaptureEnabled ->
+                "No raw capture yet — turn on \"Record 5/MG raw capture\" above, then let a history sync run.$tail"
+            else ->
+                "Raw capture is on — let a 5/MG history sync run, then try again.$tail"
+        }
+    }
+
+    /**
      * Shares the opt-in 5/MG raw backfill capture (JSONL of every frame from history syncs) for the
      * puffin biometric decode effort (#78). Copies filesDir → cache (the FileProvider path already
      * covers cache/logs) and prepends a header with an informed-consent line: the file holds raw
      * biometric frames and the strap's own console text.
      */
-    fun shareWhoop5Capture(context: Context) {
+    fun shareWhoop5Capture(context: Context, whoop5Connected: Boolean) {
         runCatching {
             val out = writeCaptureFile(context)
             if (out == null) {
-                Toast.makeText(
-                    context,
-                    "No capture yet — turn on \"Record 5/MG raw capture\", let a history sync run, then share again.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                Toast.makeText(context, noCaptureMsg(context, whoop5Connected, sharingLog = false), Toast.LENGTH_LONG).show()
                 return
             }
             val send = Intent(Intent.ACTION_SEND).apply {
@@ -130,16 +144,12 @@ object LogExport {
      * there's no capture yet, falls back to sharing just the log so the tap isn't a dead end. Reuses the
      * same file-builders the single-share paths use.
      */
-    fun shareRawAndLog(context: Context, logText: String) {
+    fun shareRawAndLog(context: Context, logText: String, whoop5Connected: Boolean) {
         runCatching {
             val logFile = writeStrapLogFile(context, logText)
             val capture = writeCaptureFile(context)
             if (capture == null) {
-                Toast.makeText(
-                    context,
-                    "No raw capture yet — turn on \"Record 5/MG raw capture\", let a history sync run, then export again. Sharing just the strap log.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                Toast.makeText(context, noCaptureMsg(context, whoop5Connected, sharingLog = true), Toast.LENGTH_LONG).show()
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_STREAM, fileUri(context, logFile))

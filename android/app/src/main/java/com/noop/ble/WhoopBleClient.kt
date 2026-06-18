@@ -976,9 +976,11 @@ class WhoopBleClient(
     /** Guards the once-per-connect initial offload kick (Swift `backfillStarted`). */
     private var backfillStarted = false
 
-    /** #364 auto-continue: consecutive immediate re-kicks after a 60s idle-cap exit on THIS connection.
-     *  Bounded by [MAX_AUTO_CONTINUES] so a pathological strap can't pin the radio. Reset to 0 on a real
-     *  HISTORY_COMPLETE (caught up) and on disconnect. Main-looper only. Mirrors Swift
+    /** #364 auto-continue: consecutive immediate re-kicks after a 60s idle-cap OR HISTORY_COMPLETE exit on
+     *  THIS connection. Bounded by [MAX_AUTO_CONTINUES] so a pathological strap can't pin the radio. Reset
+     *  to 0 once [shouldAutoContinue] proves we're caught up (its else path, under the cap) and on
+     *  disconnect — NOT unconditionally on every HISTORY_COMPLETE, so a strap that slices one offload into
+     *  many completions can't reset the cap each slice (#25). Main-looper only. Mirrors Swift
      *  `consecutiveAutoContinues`. */
     private var consecutiveAutoContinues = 0
 
@@ -3203,24 +3205,29 @@ class WhoopBleClient(
         val currentTrim = backfiller.lastAckedTrim
         val trimAdvanced = currentTrim != null && currentTrim != lastSessionEndTrim
         lastSessionEndTrim = currentTrim
-        if (reason == "HISTORY_COMPLETE") {
-            // Ran to true completion ⇒ caught up. Clear the streak so the NEXT deep backlog (e.g. after
-            // the app's been off again) gets a fresh budget of re-kicks.
-            consecutiveAutoContinues = 0
-        } else if (reason == "timeout") {
-            // A 60s idle-cap exit while still connected, with more backlog and the trim advancing,
-            // immediately re-kicks instead of waiting the 900s periodic floor — so a deep oldest-first
-            // backlog drains in back-to-back ~60s passes. Bounded by the cap + spin-detector.
+        // #364 / #25: a session that ended on the 60s idle-cap OR on a true HISTORY_COMPLETE, while still
+        // connected, with more backlog and the trim advancing, immediately re-kicks instead of waiting the
+        // 900s periodic floor — so a deep oldest-first backlog drains in back-to-back ~60s passes. #25:
+        // fire on HISTORY_COMPLETE too — some straps segment a deep overnight offload into many small
+        // HISTORY_COMPLETE slices and would otherwise stall between slices until the periodic floor. The
+        // streak is NO LONGER reset unconditionally on HISTORY_COMPLETE: a sliced offload would otherwise
+        // reset it on every slice and never engage the 6-per-connection cap. shouldAutoContinue's guards
+        // make this safe (a caught-up strap returns false and stops); the streak is cleared only once that
+        // predicate proves we're caught up — inside maybeAutoContinueBackfill's else path. Bounded by the
+        // cap + spin-detector either way.
+        if (reason == "timeout" || reason == "HISTORY_COMPLETE") {
             maybeAutoContinueBackfill(trimAdvanced, backfiller.sessionRowsPersisted)
         }
     }
 
     /**
-     * #364: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s idle-cap
-     * exit. The "more backlog remains" test needs our persisted data frontier (max HR ts) from the
-     * repository, so it reads on [ioScope] then re-kicks back on the main looper via [requestSync] (the
-     * SAME gated path the auto-kick + periodic timer use — it re-checks connected/bonded/not-backfilling,
-     * so this can't double-start). The decision is the pure [shouldAutoContinue] so it stays unit-testable.
+     * #364 / #25: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s
+     * idle-cap exit OR a HISTORY_COMPLETE. The "more backlog remains" test needs our persisted data
+     * frontier (max HR ts) from the repository, so it reads on [ioScope] then re-kicks back on the main
+     * looper via [requestSync] (the SAME gated path the auto-kick + periodic timer use — it re-checks
+     * connected/bonded/not-backfilling, so this can't double-start). On the else (caught-up, under-cap)
+     * path it instead clears [consecutiveAutoContinues] (#25). The decision is the pure [shouldAutoContinue]
+     * so it stays unit-testable.
      * [trimAdvanced] is the spin-detector signal computed in [exitBackfilling] (passed in because that
      * method has already advanced [lastSessionEndTrim] past the comparison point). Android has no
      * BackfillPolicy floor ported (only the 900s timer), so [requestSync] needs no special bypass tier —
@@ -3242,6 +3249,16 @@ class WhoopBleClient(
                     rowsPersistedThisSession = rowsPersisted,
                 )
             ) {
+                // No re-kick. THIS is the real "we're done draining" signal (#25): clear the streak so the
+                // NEXT deep backlog (e.g. after the app's been off again) gets a fresh budget of re-kicks.
+                // Reset here — NOT unconditionally on every HISTORY_COMPLETE — so a strap that slices one
+                // offload into many completions can't keep resetting the cap and spin forever. EXCEPTION: if
+                // we stopped because the per-connection CAP is hit, leave the streak at/over the cap so it
+                // STAYS engaged for the rest of this connection (the 900s floor takes over); zeroing it here
+                // would immediately re-arm the cap and let a runaway strap spin again.
+                if (count < MAX_AUTO_CONTINUES) {
+                    handler.post { consecutiveAutoContinues = 0 }
+                }
                 return@launch
             }
             handler.post {

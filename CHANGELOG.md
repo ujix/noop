@@ -17,6 +17,28 @@ approximate; downloads are on the [Releases](https://noop.fans/NoopApp/noop/rele
 
 ---
 
+## 4.7.0 — Mi Band import + a big WHOOP 4.0 sleep fix (all platforms)
+
+- **New: import a Xiaomi Mi Band.** Bring a Mi Band / Smart Band 8, 9 or 10's full history — steps,
+  heart rate, resting HR, sleep stages + hypnogram, SpO₂, stress and sleep score — straight from the
+  Mi Fitness app's on-device database. Fully offline (no Bluetooth, no Xiaomi account). It gets a
+  dedicated page and shows up across Explore, Compare and Correlations. (Thanks to @matt — #35.)
+- **Fixed: WHOOP 4.0 sleep tracking.** A 4.0 night is rebuilt from "clumped" motion (dense bursts split
+  by long dropouts); the detector was shredding those nights at each dropout into fragments it threw
+  away — giving ~0 sleep or a night split in half with the wrong start. It now bridges across the
+  dropouts (vouched by heart rate) into one correct night. (Thanks @ryanbr — #28, #33.)
+- **Fixed:** a workout's calories rendered with a trend arrow that read as a minus sign ("-874 kcal");
+  plain magnitudes now show no arrow. (Thanks @Dumbledodge — #41.)
+- **Fixed:** tapping a metric in Explore on iPhone no longer flashes the detail and bounces back. (#38.)
+- **Cleaner Settings on a WHOOP 4.0** — the 5/MG-only experimental controls are hidden when you're on a
+  4.0 (model detected automatically). (#22.)
+- **Faster overnight catch-up** — after the phone's been off, a strap that drip-feeds its history drains
+  back-to-back instead of stalling between chunks. (#25.)
+- **Bounded local storage** — experimental raw-capture buffers are now size-capped. (#27.)
+- **Apple Health body composition** — NOOP reads weight, body-fat %, lean mass and BMI on iPhone. (#20.)
+- Fixed the misleading "turn on 5/MG raw capture" message a WHOOP 4.0 user could get stuck on. (Thanks
+  @ryanbr — #32.)
+
 ## 4.6.4 — Round rings (Android)
 
 - **Fixed:** on the new Today screen, the **Effort** ring could render as a squashed oval — the three

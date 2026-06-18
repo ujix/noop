@@ -299,28 +299,29 @@ object SleepStager {
     // ── Sparse-gravity gate (#308) ─────────────────────────────────────────────
 
     /**
-     * Median spacing between consecutive timestamps with NO upper cap (unlike medianIntervalS,
-     * which restricts to <300 s to infer a sample rate). Used to detect clumped/sparse gravity
-     * where the dropouts themselves are the signal. 0 for <2 samples.
+     * Largest spacing between consecutive timestamps (seconds), NO upper cap; 0.0 for <2 samples.
+     * Used to detect clumped/sparse gravity where the dropouts themselves are the signal: a few
+     * long dropouts in otherwise-dense (clumped) motion keep the MEDIAN gap small but still break
+     * runs, so the largest gap — not the median — is the right signal (#28).
      */
-    internal fun medianGapS(times: List<Long>): Double {
+    internal fun largestGapS(times: List<Long>): Double {
         if (times.size < 2) return 0.0
-        val gaps = ArrayList<Double>(times.size)
+        var mx = 0.0
         for (i in 0 until times.size - 1) {
             val g = (times[i + 1] - times[i]).toDouble()
-            if (g > 0) gaps.add(g)
+            if (g > mx) mx = g
         }
-        if (gaps.isEmpty()) return 0.0
-        gaps.sort()
-        return gaps[gaps.size / 2]
+        return mx
     }
 
     /**
      * True when gravity is too sparse for the gravity-only spine to be trusted across gaps: the
-     * gravity timespan covers < sparseGravitySpanFrac of the HR-sample timespan, OR the median
-     * gravity inter-sample gap exceeds maxGapMin. Requires a real HR span to compare against — with
-     * no/degenerate HR the dense path is kept (false), so a 4.0 with absent HR is never reclassified
-     * as sparse.
+     * gravity timespan covers < sparseGravitySpanFrac of the HR-sample timespan, OR the LARGEST
+     * gravity inter-sample gap exceeds maxGapMin. The largest-gap test (not just the median) catches
+     * CLUMPED motion — dense bursts split by a few long dropouts, the typical WHOOP 4.0 backfill
+     * (#28) — whose median gap stays small yet which still hides run-breaking gaps. Requires a real
+     * HR span to compare against — with no/degenerate HR the dense path is kept (false), so a 4.0
+     * with absent HR is never reclassified as sparse.
      */
     internal fun isGravitySparse(grav: List<GravitySample>, hr: List<HrSample>): Boolean {
         if (grav.size < 2 || hr.size < 2) return false
@@ -328,7 +329,11 @@ object SleepStager {
         if (hrSpan <= 0) return false
         val gravSpan = (grav[grav.size - 1].ts - grav[0].ts).toDouble()
         if (gravSpan < sparseGravitySpanFrac * hrSpan) return true
-        return medianGapS(grav.map { it.ts }) > (maxGapMin * 60).toDouble()
+        // #28: clumped 4.0 motion keeps a SMALL median gap yet still contains >maxGapMin dropouts
+        // the gravity-only spine shreds the night on. The largest gap catches what a median would
+        // miss (largest >= median, so this subsumes the old median check). Flagging sparse only
+        // ENABLES buildRuns' HR-vouched bridge — a real wake (HR above the sleep band) still breaks.
+        return largestGapS(grav.map { it.ts }) > (maxGapMin * 60).toDouble()
     }
 
     /**

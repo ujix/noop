@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -56,6 +57,7 @@ import com.noop.ingest.HealthConnectImporter
 import com.noop.ingest.HealthConnectWriter
 import com.noop.ingest.LiftingImporter
 import com.noop.ingest.NutritionCsvImporter
+import com.noop.ingest.XiaomiBandImporter
 import com.noop.ingest.WhoopCsvImporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -115,6 +117,7 @@ fun DataSourcesScreen(vm: AppViewModel) {
     var nutritionWeighIns by remember { mutableStateOf<Int?>(null) }
     // Imported lifting (Hevy / Liftosaur) writes workouts under its own source ("lifting").
     var liftingWorkouts by remember { mutableStateOf<Int?>(null) }
+    var xiaomiDays by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(Unit) {
         val now = System.currentTimeMillis() / 1000
@@ -127,6 +130,7 @@ fun DataSourcesScreen(vm: AppViewModel) {
         hcWorkouts = vm.repo.workouts("health-connect", 0L, now).size
         nutritionDays = vm.repo.metricSeries(NutritionCsvImporter.SOURCE_ID, "calories_in", "0000-01-01", "9999-12-31").size
         nutritionWeighIns = vm.repo.metricSeries(NutritionCsvImporter.SOURCE_ID, "weight", "0000-01-01", "9999-12-31").size
+        xiaomiDays = vm.repo.metricSeries(XiaomiBandImporter.DEFAULT_DEVICE_ID, "steps", "0000-01-01", "9999-12-31").size
         liftingWorkouts = vm.repo.workouts(LiftingImporter.SOURCE_ID, 0L, now).size
     }
 
@@ -184,6 +188,7 @@ fun DataSourcesScreen(vm: AppViewModel) {
         nutritionDays = vm.repo.metricSeries(NutritionCsvImporter.SOURCE_ID, "calories_in", "0000-01-01", "9999-12-31").size
         nutritionWeighIns = vm.repo.metricSeries(NutritionCsvImporter.SOURCE_ID, "weight", "0000-01-01", "9999-12-31").size
         liftingWorkouts = vm.repo.workouts(LiftingImporter.SOURCE_ID, 0L, nowS).size
+        xiaomiDays = vm.repo.metricSeries(XiaomiBandImporter.DEFAULT_DEVICE_ID, "steps", "0000-01-01", "9999-12-31").size
     }
 
     // Run an importer off the main thread, refresh the counts, then toast the result.
@@ -207,6 +212,10 @@ fun DataSourcesScreen(vm: AppViewModel) {
     val appleImportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> if (uri != null) runImport { AppleHealthImporter.importExport(context, uri, vm.repo) } }
+
+    val xiaomiImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> if (uri != null) runImport { XiaomiBandImporter.importExport(context, uri, vm.repo) } }
 
     val nutritionImportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -489,6 +498,34 @@ fun DataSourcesScreen(vm: AppViewModel) {
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { nutritionImportLauncher.launch(arrayOf("*/*")) }
+        }
+
+        // --- Xiaomi Mi Band (Mi Fitness on-device DB) — #35 ---
+        SourceCard(
+            title = "Xiaomi Mi Band",
+            icon = Icons.Filled.Watch,
+            tint = Palette.metricPurple,
+            subtitle = "Import a Mi Band / Smart Band 8, 9 or 10's full history — steps, heart rate, " +
+                "resting HR, sleep stages, SpO₂, stress and sleep score — straight from the Mi Fitness " +
+                "app's on-device database. Fully offline; no Xiaomi account or Bluetooth. Export the Mi " +
+                "Fitness folder (or its .db / a .zip of it) from your phone and choose it here.",
+        ) {
+            val hasXiaomi = (xiaomiDays ?: 0) > 0
+            StatePill(
+                title = if (hasXiaomi) "Imported" else "Nothing imported",
+                tone = if (hasXiaomi) StrandTone.Accent else StrandTone.Neutral,
+                showsDot = true,
+            )
+            CountLine(
+                primary = xiaomiDays?.let { "$it days imported" } ?: "—",
+                secondary = if (xiaomiDays == null) "Counting…" else "Mi Band / Smart Band 8 · 9 · 10",
+            )
+            BackupButton(
+                label = "Import Mi Band export…",
+                icon = Icons.Filled.FileUpload,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { xiaomiImportLauncher.launch(arrayOf("*/*")) }
         }
 
         // --- Lifting log (Hevy CSV / Liftosaur JSON) ---

@@ -116,7 +116,7 @@ class SleepStagerSparseGravityTest {
 
     @Test
     fun gravitySparseGateConditions() {
-        // The gate trips on EITHER a short gravity span vs HR span OR a large median gravity gap.
+        // The gate trips on EITHER a short gravity span vs HR span OR any inter-sample gravity gap > maxGapMin.
         val start = 6_000_000L
         val hr = hrStream(start, 6 * 60 * 60, 50)
 
@@ -124,9 +124,9 @@ class SleepStagerSparseGravityTest {
         val clumped = stillGravity(start, 30 * 60)
         assertTrue("short gravity span → sparse", SleepStager.isGravitySparse(clumped, hr))
 
-        // (b) Median-gap test: gravity spans the night but every gap is 25 min (> 20 min).
+        // (b) Large-gap test: gravity spans the night but every gap is 25 min (> maxGapMin).
         val bigGaps = sparseStillGravity(start, 6 * 60 * 60, 25 * 60)
-        assertTrue("large median gap → sparse", SleepStager.isGravitySparse(bigGaps, hr))
+        assertTrue("a large inter-sample gap → sparse", SleepStager.isGravitySparse(bigGaps, hr))
 
         // (c) Dense gravity over the same span is NOT sparse.
         val dense = stillGravity(start, 6 * 60 * 60)
@@ -134,5 +134,36 @@ class SleepStagerSparseGravityTest {
 
         // (d) Degenerate HR (<2 samples) keeps the dense path regardless of gravity.
         assertFalse("no HR span → keep dense path", SleepStager.isGravitySparse(bigGaps, emptyList()))
+
+        // (e) #28: gravity SPANS the night (span gate stays dense) with a ~1 s MEDIAN gap (dense
+        // bursts) but a single >maxGapMin dropout — the median test misses it, the max-gap test
+        // catches it. Two 160-min blocks split by a 40-min dropout cover the whole 6 h HR window.
+        val clumpedBigGap = stillGravity(start, 160 * 60) +
+            stillGravity(start + (160 + 40) * 60L, 160 * 60)
+        assertTrue("clumped gravity + one long dropout (small median, large max) → sparse",
+            SleepStager.isGravitySparse(clumpedBigGap, hr))
+    }
+
+    @Test
+    fun clumpedGravityWithLongDropoutBridged() {
+        // #28: WHOOP 4.0 motion arrives CLUMPED — two dense 40-min still blocks split by a 30-min
+        // dropout, the gravity spanning the whole HR window. The block-internal gaps are ~1 s so the
+        // MEDIAN gate stays dense and the span gate doesn't fire; only the new max-gap arm catches the
+        // dropout. With sleep-band HR across the gap the night is bridged into ONE session instead of
+        // two dropped sub-minSleepMin fragments (~0 sleep) under the old median-only gate.
+        val start = startAtHour(2)
+        val block = 40 * 60
+        val gap = 30 * 60
+        val grav = stillGravity(start, block) + stillGravity(start + (block + gap).toLong(), block)
+        val dur = 2 * block + gap // HR spans the whole window
+        val hr = hrStream(start, dur, 50)
+
+        assertTrue("clumped motion with a long dropout (small median, large max gap) must read as sparse",
+            SleepStager.isGravitySparse(grav, hr))
+        val sessions = SleepStager.detectSleep(hr = hr, gravity = grav)
+        assertEquals("the dropout must be bridged into ONE session, not dropped sub-60-min fragments",
+            1, sessions.size)
+        assertTrue("the bridged session must span both blocks across the dropout",
+            (sessions[0].end - sessions[0].start).toDouble() > (2 * block).toDouble())
     }
 }

@@ -17,6 +17,7 @@ enum NavItem: String, CaseIterable, Identifiable, Hashable {
     case health = "Health"
     case stress = "Stress"
     case appleHealth = "Apple Health"
+    case xiaomi = "Mi Band"
     case dataSources = "Data Sources"
     case devices = "Devices"
     case notifications = "Notifications"
@@ -46,6 +47,7 @@ enum NavItem: String, CaseIterable, Identifiable, Hashable {
         case .health: return "Health"
         case .stress: return "Stress"
         case .appleHealth: return "Apple Health"
+        case .xiaomi: return "Mi Band"
         case .dataSources: return "Data Sources"
         case .devices: return "Devices"
         case .notifications: return "Notifications"
@@ -73,6 +75,7 @@ enum NavItem: String, CaseIterable, Identifiable, Hashable {
         case .health: return "heart.text.square.fill"
         case .stress: return "gauge.with.dots.needle.50percent"
         case .appleHealth: return "heart.fill"
+        case .xiaomi: return "figure.walk.motion"
         case .dataSources: return "square.and.arrow.down.fill"
         case .devices: return "badge.plus.radiowaves.right"
         case .notifications: return "bell.badge.fill"
@@ -169,6 +172,7 @@ struct RootView: View {
         case .health: HealthView()
         case .stress: StressView()
         case .appleHealth: AppleHealthView()
+        case .xiaomi: XiaomiBandView()
         case .dataSources: DataSourcesView()
         case .devices: DevicesView()
         case .notifications: NotificationSettingsView()

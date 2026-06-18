@@ -11,13 +11,16 @@ public struct ImportCoordinator {
 
     private let appleHealth: AppleHealthImporter
     private let whoop: WhoopExportImporter
+    private let xiaomi: XiaomiBandImporter
 
     public init(
         appleHealth: AppleHealthImporter = AppleHealthImporter(),
-        whoop: WhoopExportImporter = WhoopExportImporter()
+        whoop: WhoopExportImporter = WhoopExportImporter(),
+        xiaomi: XiaomiBandImporter = XiaomiBandImporter()
     ) {
         self.appleHealth = appleHealth
         self.whoop = whoop
+        self.xiaomi = xiaomi
     }
 
     // MARK: - Explicit-kind entry points
@@ -46,17 +49,25 @@ public struct ImportCoordinator {
         try whoop.import(from: url)
     }
 
+    /// Parse a Xiaomi / Mi Band export (the Mi Fitness sandbox folder, a `.zip` of it,
+    /// or the bare `<user_id>.db`).
+    public func importXiaomiBand(from url: URL) throws -> XiaomiImportResult {
+        try xiaomi.import(from: url)
+    }
+
     // MARK: - Auto-detecting entry point
 
     /// The detected kind plus exactly one of the two result payloads.
     public enum DetectedImport: Sendable, Equatable {
         case appleHealth(AppleHealthImportResult)
         case whoopExport(WhoopImportResult)
+        case xiaomiBand(XiaomiImportResult)
 
         public var kind: DataSourceKind {
             switch self {
             case .appleHealth: return .appleHealth
             case .whoopExport: return .whoopExport
+            case .xiaomiBand: return .xiaomiBand
             }
         }
 
@@ -64,6 +75,7 @@ public struct ImportCoordinator {
             switch self {
             case .appleHealth(let r): return r.summary
             case .whoopExport(let r): return r.summary
+            case .xiaomiBand(let r): return r.summary
             }
         }
     }
@@ -81,6 +93,8 @@ public struct ImportCoordinator {
             return .appleHealth(try appleHealth.import(from: url))
         case .whoopExport:
             return .whoopExport(try whoop.import(from: url))
+        case .xiaomiBand:
+            return .xiaomiBand(try xiaomi.import(from: url))
         }
     }
 
@@ -94,6 +108,8 @@ public struct ImportCoordinator {
 
         let ext = url.pathExtension.lowercased()
         if ext == "xml" { return .appleHealth }
+        // A bare Mi Fitness SQLite file.
+        if ext == "db" { return .xiaomiBand }
 
         let names = try entryFilenames(of: url, isDirectory: isDir.boolValue)
         if names.contains("export.xml") { return .appleHealth }
@@ -102,7 +118,30 @@ public struct ImportCoordinator {
         ]
         if !names.isDisjoint(with: whoopNames) { return .whoopExport }
 
+        // Mi Fitness sandbox: a `DataBase/<user_id>/de/<user_id>.db` somewhere inside.
+        if try containsMiFitnessDB(of: url, isDirectory: isDir.boolValue) { return .xiaomiBand }
+
         throw ImportError.notAZipOrFolder(url.path)
+    }
+
+    /// True if a folder or zip holds a Mi Fitness health DB (`.../de/<…>.db`).
+    private func containsMiFitnessDB(of url: URL, isDirectory: Bool) throws -> Bool {
+        func isHealthDBPath(_ p: String) -> Bool {
+            let lower = p.lowercased()
+            return lower.hasSuffix(".db") && lower.contains("/de/")
+        }
+
+        if isDirectory {
+            let fm = FileManager.default
+            guard let e = fm.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+                return false
+            }
+            for case let u as URL in e where isHealthDBPath(u.path) { return true }
+            return false
+        }
+
+        guard let paths = try? ZipPeek.paths(in: url) else { return false }
+        return paths.contains(where: isHealthDBPath)
     }
 
     // MARK: - Helpers
@@ -146,5 +185,12 @@ enum ZipPeek {
             names.insert((entry.path as NSString).lastPathComponent.lowercased())
         }
         return names
+    }
+
+    /// Full relative entry paths (lowercased) — for structure-aware detection where a
+    /// base filename isn't enough (e.g. spotting `DataBase/<id>/de/<id>.db`).
+    static func paths(in zipURL: URL) throws -> [String] {
+        let archive = try Archive(url: zipURL, accessMode: .read)
+        return archive.compactMap { $0.type == .file ? $0.path.lowercased() : nil }
     }
 }

@@ -72,6 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.BuildConfig
 import com.noop.analytics.Zones
 import com.noop.ble.PuffinExperiment
+import com.noop.ble.WhoopModel
 import com.noop.data.DataBackup
 import com.noop.ingest.RawSensorExport
 import com.noop.ingest.WhoopCsvExporter
@@ -294,6 +295,20 @@ fun SettingsScreen(vm: AppViewModel) {
     var puffinCapture by remember { mutableStateOf(puffinExperiment.isCaptureEnabled) }
     var deepData by remember { mutableStateOf(puffinExperiment.isDeepDataEnabled) }
     var broadcastHr by remember { mutableStateOf(puffinExperiment.broadcastHr) }
+
+    // Whether to surface the WHOOP 5/MG-only probes (puffin / R22 / broadcast-HR / frame-capture). Gated
+    // so a confident 4.0 owner never sees 5/MG controls that can't touch their strap (#22). The model
+    // preference DEFAULTS to WHOOP4, so we deliberately do NOT hide on the raw default alone — the same
+    // "noop.selectedWhoopModel" key is rewritten to the family that actually advertised when a strap
+    // connects (WhoopBleClient.persistSelectedModel, PR#195), so a real 5/MG owner who never opened the
+    // model picker still flips this true once their strap is discovered. We also show it whenever a 5/MG
+    // is live-detected this session. Hide only when the user is confidently on a 4.0 (pref says WHOOP4
+    // AND nothing 5/MG is connected). Mirrors the macOS SettingsView `showFiveMGControls` gate.
+    val selectedModelName = remember(rev) {
+        context.getSharedPreferences(NoopPrefs.NAME, Context.MODE_PRIVATE)
+            .getString("noop.selectedWhoopModel", null)
+    }
+    val showFiveMGControls = selectedModelName == WhoopModel.WHOOP5_MG.name || live.whoop5Detected
 
     // "Keep connected in the background" — drives WhoopConnectionService (foreground service). Default
     // on. SharedPreferences isn't reactive, so the Switch mirrors into a local state.
@@ -940,7 +955,8 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
-        // --- Experimental · WHOOP 5 / MG ---
+        // --- Experimental · WHOOP 5 / MG --- (hidden when the user is confidently on a 4.0, #22)
+        if (showFiveMGControls) {
         SettingsSection(
             icon = Icons.Filled.Science,
             title = "Experimental · WHOOP 5 / MG",
@@ -1128,7 +1144,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     color = Palette.textTertiary,
                 )
                 OutlinedButton(
-                    onClick = { LogExport.shareWhoop5Capture(context) },
+                    onClick = { LogExport.shareWhoop5Capture(context, live.whoop5Detected) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.textSecondary),
                 ) { Text("Share 5/MG capture (for the decode effort)", style = NoopType.captionNumber) }
@@ -1137,11 +1153,22 @@ fun SettingsScreen(vm: AppViewModel) {
                 // the strap log together (timestamped, same minute) so a protocol-mapping issue arrives
                 // with the frames AND the context that produced them.
                 OutlinedButton(
-                    onClick = { LogExport.shareRawAndLog(context, vm.ble.exportLogText()) },
+                    onClick = { LogExport.shareRawAndLog(context, vm.ble.exportLogText(), live.whoop5Detected) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.textSecondary),
                 ) { Text("Export raw + log (matched pair)", style = NoopType.captionNumber) }
+            }
+        }
+        } // end if (showFiveMGControls)
 
+        // --- Diagnostics (every model) --- the raw-sensor CSV export is split out of the 5/MG card so it
+        // stays available on a WHOOP 4.0 too (#22): a 4.0 owner still needs it to share decoded streams.
+        SettingsSection(
+            icon = Icons.Filled.Science,
+            title = "Diagnostics",
+            blurb = "A read-only export of the decoded sensor streams NOOP already stores. Works on any strap — nothing is written to your device, and nothing is uploaded.",
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Diagnostics: dump the decoded per-sample sensor streams (last 24h) to one long-format
                 // CSV so power users / external devs can prototype sleep/activity/VBT algorithms on real
                 // data without a BLE stream (#308/#276/#322). On-device only; plain text, no BLE hex.

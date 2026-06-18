@@ -162,15 +162,17 @@ public struct TrendChip: View {
     public init(text: String, color: Color = StrandPalette.textTertiary) {
         self.text = text; self.color = color
     }
-    private var symbol: String {
+    private var symbol: String? {
         let t = text.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("+") || t.hasPrefix("▲") || t.lowercased().hasPrefix("up") { return "arrow.up.right" }
         if t.hasPrefix("-") || t.hasPrefix("−") || t.hasPrefix("▼") || t.lowercased().hasPrefix("down") { return "arrow.down.right" }
-        return "minus"
+        // No sign → a plain magnitude (e.g. a workout's "874 kcal"), not a trend: show NO direction
+        // glyph. Previously this fell to "minus", whose leading dash read as a negative ("-874 kcal" — #41).
+        return nil
     }
     public var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: symbol).font(.system(size: 8, weight: .bold))
+            if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
             Text(text).font(StrandFont.captionNumber)
         }
         .foregroundStyle(color)

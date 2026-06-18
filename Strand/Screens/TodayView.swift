@@ -44,6 +44,9 @@ struct TodayView: View {
     @State private var sparks: [String: [Double]] = [:]
     @State private var workouts: [WorkoutRow] = []
     @State private var appleDays: [AppleDaily] = []
+    /// Distinct days + sleep sessions imported from a Mi Band (Mi Fitness), for the Data Sources row.
+    @State private var xiaomiDays = 0
+    @State private var xiaomiSleeps = 0
 
     // The Rest SCORE (0–100) for the logical day — IntelligenceEngine's Rest composite, written to the
     // `sleep_performance` metric series (imported export wins, computed strap fills). The Key-Metrics
@@ -1312,6 +1315,15 @@ struct TodayView: View {
                         present: !appleDays.isEmpty,
                         detail: "\(appleDays.count) days · \(workouts.filter { WorkoutSource.isAppleHealth($0.source) }.count) workouts"
                     )
+                    if xiaomiDays > 0 {
+                        Divider().overlay(StrandPalette.hairline)
+                        sourceRow(
+                            badge: "Mi Band",
+                            tint: StrandPalette.metricAmber,
+                            present: true,
+                            detail: "\(xiaomiDays) days · \(xiaomiSleeps) sleeps"
+                        )
+                    }
                     strapBatteryRow
                     Divider().overlay(StrandPalette.hairline)
                     strapSyncRow
@@ -1471,6 +1483,14 @@ struct TodayView: View {
 
         workouts = await repo.workoutRows()
         appleDays = await repo.appleDailyRows()
+        // Mi Band (Mi Fitness import) — distinct days across its representative metric keys.
+        let xSteps = await repo.series(key: "steps", source: "xiaomi-band")
+        let xSleep = await repo.series(key: "sleep_total_min", source: "xiaomi-band")
+        xiaomiDays = Set(xSteps.map(\.day) + xSleep.map(\.day)).count
+        if let store = await repo.storeHandle() {
+            let farFuture = Int(Date.distantFuture.timeIntervalSince1970)
+            xiaomiSleeps = ((try? await store.sleepSessions(deviceId: "xiaomi-band", from: 0, to: farFuture, limit: 4000))?.count) ?? 0
+        }
 
         // HR trend for the SELECTED day — 5-minute bucket means from that logical day's local midnight.
         // For today the window runs to now (an in-progress curve); for a navigated past day it runs the

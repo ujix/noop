@@ -202,6 +202,7 @@ struct RootTabView: View {
                 }
                 Section("Data") {
                     link("Apple Health", "heart.fill") { AppleHealthView() }
+                    link("Mi Band", "figure.walk.motion") { XiaomiBandView() }
                     link("Data Sources", "externaldrive.fill") { DataSourcesView() }
                     // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
                     // reads the opt-in Documents/noop_sync.txt drop file).

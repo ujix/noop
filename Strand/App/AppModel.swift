@@ -8,6 +8,7 @@ import StrandAnalytics
 enum DataSourceImportKind {
     case whoop
     case appleHealth
+    case xiaomi
 }
 
 /// Root app state: owns the live BLE connection state and the CoreBluetooth engine.
@@ -100,11 +101,14 @@ final class AppModel: ObservableObject {
     @Published var whoopImportSummary: String?
     /// Last Apple Health import result surfaced in the Apple Health card.
     @Published var appleHealthImportSummary: String?
+    /// Last Xiaomi / Mi Band import result surfaced in the Mi Band card.
+    @Published var xiaomiImportSummary: String?
     /// Typed failure flags per source — the summary's warning styling reads these instead of
     /// substring-matching the human-readable message (which misses errors like "Couldn't open
     /// the local store."). Surfaced on both the Data Sources cards and the onboarding import step.
     @Published var whoopImportFailed = false
     @Published var appleHealthImportFailed = false
+    @Published var xiaomiImportFailed = false
 
     /// True while any data-source import is writing to the local store.
     var hasActiveImport: Bool { activeImportSource != nil }
@@ -119,6 +123,7 @@ final class AppModel: ObservableObject {
         switch source {
         case .whoop: return whoopImportFailed
         case .appleHealth: return appleHealthImportFailed
+        case .xiaomi: return xiaomiImportFailed
         }
     }
 
@@ -709,6 +714,34 @@ final class AppModel: ObservableObject {
 
     /// Import an Apple Health export (export.zip) — streams + aggregates per-day into the store
     /// under the `apple-health` source, then refreshes. Large exports take ~1–2 minutes.
+    func importXiaomi(url: URL) {
+        beginImport(.xiaomi)
+        Task {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                guard let store = await repo.storeHandle() else {
+                    finishImport(.xiaomi, summary: "Couldn't open the local store.", failed: true)
+                    return
+                }
+                let local = try await Self.materializeForImport(url)
+                defer { local.cleanup() }
+                let summary = try await XiaomiImporter.importExport(url: local.url, into: store)
+                await repo.refresh()
+                let span: String
+                if let a = summary.earliest, let b = summary.latest {
+                    let f = DateFormatter(); f.dateFormat = "MMM yyyy"
+                    span = " · \(f.string(from: a))–\(f.string(from: b))"
+                } else { span = "" }
+                let days = summary.countsByCategory["days"] ?? 0
+                let sleeps = summary.countsByCategory["sleepSessions"] ?? 0
+                finishImport(.xiaomi, summary: "Imported \(days) days · \(sleeps) sleeps\(span)")
+            } catch {
+                finishImport(.xiaomi, summary: "Import failed: \(error)", failed: true)
+            }
+        }
+    }
+
     func importAppleHealth(url: URL) {
         beginImport(.appleHealth)
         Task {
@@ -740,6 +773,9 @@ final class AppModel: ObservableObject {
         case .appleHealth:
             appleHealthImportSummary = nil
             appleHealthImportFailed = false
+        case .xiaomi:
+            xiaomiImportSummary = nil
+            xiaomiImportFailed = false
         }
     }
 
@@ -752,6 +788,9 @@ final class AppModel: ObservableObject {
         case .appleHealth:
             appleHealthImportSummary = summary
             appleHealthImportFailed = failed
+        case .xiaomi:
+            xiaomiImportSummary = summary
+            xiaomiImportFailed = failed
         }
         activeImportSource = nil
     }

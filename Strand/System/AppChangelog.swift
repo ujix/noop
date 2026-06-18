@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "4.6.2"
+    static let currentVersion = "4.7.0"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,20 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "4.7.0",
+            title: "Mi Band import + a big WHOOP 4.0 sleep fix",
+            date: "June 2026",
+            items: [
+                "**New: import a Xiaomi Mi Band.** Bring a Mi Band / Smart Band 8, 9 or 10's full history — steps, heart rate, resting HR, sleep stages, SpO₂, stress and sleep score — straight from the Mi Fitness app's on-device database. No Bluetooth, no Xiaomi account; it gets its own page with a per-night hypnogram and shows up across Explore, Compare and Correlations. (Thanks @matt — #35.)",
+                "**Fixed: WHOOP 4.0 sleep tracking.** A 4.0 night rebuilt from clumped motion was being shredded at each long dropout into fragments and thrown away — so you'd get ~0 sleep or a night split in half with the wrong start. It now bridges across the dropouts (vouched by heart rate) into one correct night. (Thanks @ryanbr — #28, #33.)",
+                "**Fixed: no more \"-874 kcal\".** A workout's calories were drawn with a trend arrow that read as a minus sign — plain numbers now show no arrow. (Thanks @Dumbledodge — #41.)",
+                "**Fixed: Explore taps** on iPhone no longer flash the detail and bounce back. (Thanks @matt — #38.)",
+                "**Cleaner Settings on a WHOOP 4.0** — the 5/MG-only experimental controls are hidden when you're on a 4.0 (your strap model is detected automatically). (#22.)",
+                "**Faster overnight catch-up** after your phone's been off — a strap that drip-feeds its history now drains back-to-back instead of stalling between chunks. (#25.)",
+                "**Bounded local storage** — the experimental raw-capture buffers are now size-capped. (#27.)",
+                "**Apple Health body composition** — NOOP now reads your weight, body-fat %, lean mass and BMI from Apple Health on iPhone. (Thanks @h3ld3r — #20.)",
+            ]),
         Release(
             version: "4.6.2",
             title: "A bolder Today screen",

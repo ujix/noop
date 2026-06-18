@@ -9,6 +9,8 @@ source stands and the protocol facts we've verified, so the next build can pick 
 | **WHOOP 4 / 5 / MG** | ✅ Shipped, primary | Local BLE decode |
 | **Generic BLE heart-rate straps** (Polar / Wahoo / Coospo / Garmin HRM / Amazfit Helio HR-broadcast) | ✅ Shipped (v3.8.0), live HR + RR | Standard HR service `0x180D` / `0x2A37` |
 | **Fitness Age / Vitality / Body Age** | ✅ Shipped (v4.0.0) | On-device, from the data above |
+| **Xiaomi Smart Band 8 / 9 / 10** (Mi Band) | ✅ Shipped, **import lane** | Read the Mi Fitness iOS app's own SQLite, on-device (below) |
+| **Xiaomi Smart Band — live BLE sync** | 🔬 Protocol researched, decoder not built | Mi protobuf-v2 over BLE GATT + `encryptKey` handshake (below) — hardware-gated |
 | **Polar deep streams** (ECG / PPG / ACC / PPI) | 🔬 Protocol verified, decoder not built | PMD service (below) — alpha, hardware-gated |
 | **Garmin** (sleep / HRV / Body Battery / SpO₂ / FIT) | 📋 Researched, not built | Local BLE re-derive (Gadgetbridge-informed, **never** GPLv3 copy) |
 | **Amazfit / Zepp** (incl. Helio deep) | 📋 Researched, not built | Encrypted Huami BLE — needs a one-time **user-pasted** vendor key (NOOP never logs into the vendor cloud) |
@@ -40,6 +42,67 @@ Polar H10 / Verity Sense / OH1 the user owns, account-free, on top of the standa
 **Open item — #421** ("Polar H10 paired, no live data", Android): the generic-HR plumbing is correct
 (CCCD write + both notification callbacks); the leading theory is the WHOOP auto-reconnect reclaiming
 the radio while the strap is active. Needs the reporter's detail + an H10 in hand to verify a fix.
+
+## Xiaomi Smart Band (Mi Band) — shipped import lane
+
+NOOP imports a Mi Band's full history **without Bluetooth, a Xiaomi account, or any
+cloud** by reading the data the **Mi Fitness iOS app already stored on the phone**. This
+is the same "import data you already own" model as the WHOOP-CSV and Apple-Health lanes,
+and it's fully offline.
+
+- **What the user does:** on the iPhone, *Files → On My iPhone → Mi Fitness*, long-press
+  the folder → *Compress*, then bring that `.zip` to NOOP (*Data Sources → Xiaomi Smart
+  Band*). The bare `<user_id>.db` or an unzipped folder (macOS) also work.
+- **Where the data is:** `DataBase/<user_id>/de/<user_id>.db` — one SQLite row per sample
+  with a JSON `value` column. NOOP opens it **read-only** (GRDB) and never writes to it.
+- **Tables read** (`deleted = 0` only):
+  - Day rollups → `dailyMetric` + `metricSeries`: `steps_day` (steps, distance),
+    `calories_day` (active kcal), `heart_rate_day` (`avg_rhr` resting, avg/min/max + HR
+    zones), `sleep_day` (total/deep/light/rem minutes, `sleep_score`), `stress_day`
+    (`avg_stress`, 0–100), `spo2_day` (`avg_spo2`), `intensity_day`, `valid_stand_day`,
+    `vitality` (`latest_accumulated_vitality`).
+  - `sleep` (interval) → `sleepSession`: each row's `items[]` is the **real per-epoch
+    hypnogram** (`{start_time, end_time, state}`), giving NOOP a native
+    `[{start,end,stage}]` timeline rather than just stage totals.
+- **Sleep-stage codes** (verified against a real Mi Band 10 export):
+  `1 = awake, 2 = light, 3 = deep, 4 = REM, 5 = awake-in-bed` → NOOP `wake/light/deep/rem`.
+- **Not present in the export** (left `nil`, NOOP derives what it can): HRV, recovery,
+  respiration rate, skin temperature.
+- **Partition:** all rows land under `deviceId = "xiaomi-band"`, so it appears as its own
+  Data Source for the per-source pages and cross-source consensus/compare views.
+
+**Code:** parser `Packages/StrandImport/Sources/StrandImport/XiaomiBandImporter.swift`
+(pure, re-derived from the public `artyomxx/xiaomi-band-ios-export` tool — **not** copied
+from any GPL source); app glue `Strand/Data/XiaomiImporter.swift`; detection in
+`ImportCoordinator`. Verified end-to-end against a real **450-day / 545-sleep** export.
+
+## Xiaomi Smart Band — live BLE sync (researched, not built)
+
+The chosen-but-deferred path. The band **is** reachable over BLE (Gadgetbridge supports
+Smart Band 8/9/10 this way, no Classic-SPP/MFi needed), so a CoreBluetooth implementation
+is feasible *in principle* on iOS — but it's a Gadgetbridge-scale reverse-engineer that
+must be **re-derived, never GPL-copied**, and can only be built/verified with the physical
+band in an iterative BLE test loop. Verified facts to pick up from:
+
+- **Stack:** "Xiaomi protobuf v2" — length-prefixed, chunked **protobuf** command/response
+  frames over a vendor GATT service (the Mi ecosystem service is `0xFE95`; the data
+  channel is a custom 128-bit service with write + notify characteristics — confirm the
+  exact UUIDs by a GATT dump of *this* band).
+- **Auth:** the per-device **`encryptKey`** (32 hex chars) the vendor app holds — the user
+  already extracts it as `auth.key` via the same Mi Fitness export. Pairing is a
+  nonce-exchange handshake (send phone nonce → receive watch nonce → derive session keys),
+  after which traffic is **AES-CCM** encrypted with **HMAC** integrity. NOOP would take the
+  key as a one-time **user-pasted value** (same stance as the Amazfit/Zepp lane) and never
+  log into the Xiaomi cloud.
+- **Data fetch:** once authenticated, request **activity sync** — the watch streams the same
+  per-minute samples and sleep/stage records that the import lane reads from the DB, so the
+  decode target (and the `xiaomi-band` store shape) is **already built and verified**. Live
+  sync is "only" the transport + crypto + protobuf layer in front of it.
+- **iOS caveat:** background BLE sync under a free signing identity is limited; treat live
+  sync as a foreground "Sync now" action first.
+
+This earns its place only if it stays tractable and never threatens WHOOP stability — it
+will not ship blind.
 
 ## Notes on the deep-band lanes (Garmin / Amazfit / cloud)
 

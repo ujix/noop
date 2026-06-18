@@ -17,6 +17,16 @@ NOOP builds on prior community reverse-engineering and interoperability work:
   `fd4b0001-…`, CRC16-Modbus header, CLIENT_HELLO, and the "puffin" packet types)
   that NOOP's `DeviceFamily` Whoop-5 path and `whoop5_protocol.json` are ported from.
 
+## Xiaomi Smart Band (Mi Band) import
+- **`artyomxx/xiaomi-band-ios-export`** — documented the Mi Fitness iOS app's on-device
+  SQLite layout (`DataBase/<user_id>/de/<user_id>.db`, JSON `value` columns, the `*_day`
+  rollups and the `sleep` table's `items[]` hypnogram with state codes). NOOP's
+  `XiaomiBandImporter` is **re-derived** from those findings and verified against a real
+  Mi Band 10 export; **no code is copied** (the reference tool is AGPL, NOOP is not).
+- **Gadgetbridge** (`Freeyourgadget/Gadgetbridge`) — referenced only for *protocol facts*
+  about the live Mi-protobuf BLE stack in the roadmap's research notes. GPLv3; NOOP copies
+  **none** of its code and has not built the live lane.
+
 ## Other
 - **GRDB.swift** (`groue/GRDB.swift`) — SQLite persistence (via Swift Package Manager).
 - **MarkdownUI** (`gonzalezreal/swift-markdown-ui`) — renders the AI Coach's Markdown

@@ -205,4 +205,59 @@ final class BackfillContinuationTests: XCTestCase {
         // It stopped because it hit the cap (deep backlog), not because it silently stalled at pass 1.
         XCTAssertEqual(count, BackfillContinuation.defaultMaxAutoContinues)
     }
+
+    // MARK: #25 — HISTORY_COMPLETE-sliced offloads
+
+    /// #25: the user goes to bed with a charged strap, the phone dies, and overnight banks a deep backlog.
+    /// Some strap firmware segments that offload into many SMALL HISTORY_COMPLETE slices rather than one
+    /// long session. Before #25, exitBackfilling only auto-continued on a 60s TIMEOUT, so a strap that
+    /// completed-then-stopped between slices stalled until the 15-min floor — "last night" drained an hour
+    /// at a time. The predicate is reason-agnostic: a small completion that is STILL far behind the strap's
+    /// newest, with the trim advancing and real rows banked, must auto-continue exactly as a timeout would.
+    func testSmallHistoryCompleteStillBehindContinues() {
+        XCTAssertTrue(BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: 1_800_000_000,
+            ourFrontierTs: 1_800_000_000 - 6 * 3600,   // still 6 h behind after this slice
+            rowsPersistedThisSession: 90,              // a small slice, but real rows landed
+            lastTrimAdvanced: true,
+            consecutiveCount: 0))
+    }
+
+    /// #25: the LAST slice of the overnight drain brings us level with the strap's newest record. Firing
+    /// the auto-continue on HISTORY_COMPLETE must NOT spin a caught-up strap — the frontier is now within
+    /// the behind-gap, so the predicate returns false and the session tears down to the periodic floor.
+    func testFinalHistoryCompleteCaughtUpStops() {
+        XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: 1_800_000_000,
+            ourFrontierTs: 1_800_000_000 - 60,         // within the 5-min gap ⇒ caught up
+            // A genuinely caught-up strap hands over NO new rows on the final END (empty / console-only),
+            // so the #451 guard-2b "keep draining if still persisting real backlog" does not fire and the
+            // predicate returns false. (12 rows + advanced trim would correctly KEEP going per #451.)
+            rowsPersistedThisSession: 0,
+            lastTrimAdvanced: true,
+            consecutiveCount: 0))
+    }
+
+    /// #25: a pathological strap that emits an endless run of tiny far-behind HISTORY_COMPLETE slices must
+    /// still be bounded by the per-connection cap — otherwise firing on completion would let it pin the
+    /// radio. Each slice persists rows and stays behind, yet the drain stops at exactly maxAutoContinues.
+    func testHistoryCompleteSlicesAreCappedNotRunaway() {
+        var count = 0
+        var continued = 0
+        while BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: 1_800_000_000,
+            ourFrontierTs: 1_800_000_000 - 7 * 86_400, // never catches up — frontier stays far behind
+            rowsPersistedThisSession: 30,              // every tiny slice banks a few rows
+            lastTrimAdvanced: true,
+            consecutiveCount: count) {
+            count += 1
+            continued += 1
+            XCTAssertLessThanOrEqual(continued, BackfillContinuation.defaultMaxAutoContinues + 1,
+                                     "HISTORY_COMPLETE slices must be capped, not spin forever")
+        }
+        XCTAssertEqual(count, BackfillContinuation.defaultMaxAutoContinues)
+    }
 }

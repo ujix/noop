@@ -385,7 +385,9 @@ fun TrendChip(text: String, color: Color = Palette.textTertiary, modifier: Modif
     val symbol = when {
         t.startsWith("+") || t.startsWith("▲") || t.lowercase().startsWith("up") -> "▲"
         t.startsWith("-") || t.startsWith("−") || t.startsWith("▼") || t.lowercase().startsWith("down") -> "▼"
-        else -> "–"
+        // No sign → a plain magnitude (e.g. a workout's "874 kcal"), not a trend: show NO direction
+        // glyph. Previously this fell to "–", whose leading dash read as a negative ("-874 kcal" — #41).
+        else -> null
     }
     Row(
         modifier = modifier
@@ -395,7 +397,7 @@ fun TrendChip(text: String, color: Color = Palette.textTertiary, modifier: Modif
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(symbol, style = NoopType.captionNumber.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold), color = color)
+        if (symbol != null) Text(symbol, style = NoopType.captionNumber.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold), color = color)
         Text(text, style = NoopType.captionNumber, color = color, maxLines = 1)
     }
 }

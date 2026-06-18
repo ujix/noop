@@ -67,6 +67,18 @@ struct SettingsView: View {
     /// current name stays visible separately above it.
     @State private var strapNameDraft = ""
 
+    /// Whether to surface the WHOOP 5/MG-only probes (puffin/R22/broadcast-HR/frame-capture). Gated so a
+    /// confident 4.0 owner never sees 5/MG controls that can't touch their strap (#22). The model
+    /// preference DEFAULTS to whoop4, so we deliberately do NOT hide on the raw default alone — the same
+    /// `"selectedWhoopModel"` key is rewritten to the family that actually advertised when a strap
+    /// connects (BLEManager, PR#195), so a real 5/MG owner who never opened the model picker still flips
+    /// this true the moment their strap is discovered. We hide the 5/MG block only when the user is
+    /// confidently on a 4.0 (pref says whoop4 AND nothing 5/MG is connected). The always-on raw-CSV
+    /// diagnostic stays visible on every model regardless.
+    private var showFiveMGControls: Bool {
+        selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue
+    }
+
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var temperatureUnit: TemperatureUnit {
         UnitPrefs.resolveTemperature(system: unitSystem, override: temperatureRaw)
@@ -724,7 +736,15 @@ struct SettingsView: View {
 
     // MARK: - Experimental (WHOOP 5 / MG)
 
-    private var experimentalCard: some View {
+    /// Entry point used by `body`. The 5/MG probe card only renders for a 5/MG (see `showFiveMGControls`,
+    /// #22); the raw-sensor CSV diagnostic is split into its own card so it stays available on every
+    /// model — a 4.0 owner still needs the export to share decoded streams.
+    @ViewBuilder private var experimentalCard: some View {
+        if showFiveMGControls { fiveMGCard }
+        rawSensorDiagnosticsCard
+    }
+
+    private var fiveMGCard: some View {
         SettingsSection(
             icon: "flask.fill",
             title: "Experimental · WHOOP 5 / MG",
@@ -863,9 +883,22 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+        }
+    }
 
-                Divider().overlay(StrandPalette.hairline)
+    // MARK: - Diagnostics (every model)
 
+    /// Raw-sensor CSV export — a read-only diagnostic over the decoded streams NOOP already stores
+    /// (HR, R-R, motion, steps, PPG-HR, SpO₂, skin temp, resp, events). Split out of the 5/MG card so it
+    /// stays visible on EVERY model (#22): a WHOOP 4.0 owner still needs this to share decoded data.
+    private var rawSensorDiagnosticsCard: some View {
+        SettingsSection(
+            icon: "doc.text.magnifyingglass",
+            title: "Diagnostics",
+            blurb: "A read-only export of the decoded sensor streams NOOP already stores. Works on any strap — nothing is written to your device, and nothing is uploaded."
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
                 // MARK: Export raw sensor data (CSV) — a read-only diagnostic over the decoded streams
                 // NOOP already stores (HR, R-R, motion, steps, PPG-HR, SpO₂, skin temp, resp, events).
                 Button {

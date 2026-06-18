@@ -16,6 +16,17 @@ struct MetricDescriptor: Identifiable, Hashable {
     var description: String? = nil
     var id: String { source + ":" + key }
 
+    /// Human label for the metric's source partition (catalog row caption / detail subtitle).
+    var sourceLabel: String {
+        switch source {
+        case "apple-health": return "Apple Health"
+        case "xiaomi-band":  return "Mi Band"
+        case "nutrition-csv": return "Nutrition"
+        case "noop-mood":    return "Mood"
+        default:             return "Whoop"   // "my-whoop" + on-device computed sources
+        }
+    }
+
     /// True for the Effort metric (#268). Its stored value is 0–100; the effort-scale toggle converts
     /// the DISPLAYED number + unit onto WHOOP's 0–21 axis. Mirrors the Android `MetricSpec.whoopEffort`
     /// gate (`key == "strain"`) — the only value-converting metric in the catalog.
@@ -157,6 +168,24 @@ enum MetricCatalog {
 
         // ── Mind (daily mood check-in, 1–5; non-clinical self-tracking)
         d("mood", "Mood", "Mind", "/5", "noop-mood", "face.smiling", 0, true),
+
+        // ── Mi Band (imported from Mi Fitness). Same metricSeries mechanism as Apple Health /
+        //    Nutrition, so these light up Explore, Compare and the correlation scan. Distinct
+        //    `source` keeps them comparable against the WHOOP/Apple versions rather than colliding.
+        d("avg_hr", "Average Heart Rate", "Heart", "bpm", "xiaomi-band", "heart", 0, nil),
+        d("max_hr", "Max Heart Rate", "Heart", "bpm", "xiaomi-band", "bolt.heart", 0, nil),
+        d("energy_kcal", "Calories", "Heart", "kcal", "xiaomi-band", "flame", 0, nil),
+        d("vitality", "Vitality", "Heart", "", "xiaomi-band", "sparkles", 0, true),
+        d("rhr", "Resting Heart Rate", "Charge", "bpm", "xiaomi-band", "heart", 0, false),
+        d("spo2", "Blood Oxygen", "Charge", "%", "xiaomi-band", "drop", 0, true),
+        d("sleep_total_min", "Asleep Time", "Rest", "min", "xiaomi-band", "moon.zzz", 0, true),
+        d("sleep_deep_min", "Deep (SWS) Sleep", "Rest", "min", "xiaomi-band", "moon.fill", 0, true),
+        d("sleep_rem_min", "REM Sleep", "Rest", "min", "xiaomi-band", "moon.haze", 0, true),
+        d("sleep_light_min", "Light Sleep", "Rest", "min", "xiaomi-band", "moon", 0, nil),
+        d("sleep_score", "Sleep Score", "Rest", "", "xiaomi-band", "moon.stars", 0, true),
+        d("steps", "Steps", "Effort", "", "xiaomi-band", "figure.walk", 0, true),
+        d("intensity_min", "Intensity Minutes", "Effort", "min", "xiaomi-band", "figure.run", 0, true),
+        d("stress", "Stress", "Health", "/100", "xiaomi-band", "gauge.with.dots.needle.50percent", 0, false),
     ]
 
     static func inCategory(_ c: String) -> [MetricDescriptor] { all.filter { $0.category == c } }
