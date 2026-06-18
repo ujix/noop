@@ -980,6 +980,7 @@ fun ScreenScaffold(
     title: String,
     subtitle: String? = null,
     modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -990,11 +991,19 @@ fun ScreenScaffold(
             .padding(28.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = NoopType.title1, color = Palette.textPrimary)
-            if (subtitle != null) {
-                Text(subtitle, style = NoopType.subhead, color = Palette.textSecondary)
+        // Compact top bar: the screen title/subtitle with an optional trailing action (e.g. the Support
+        // heart on Today). Mirrors the iOS ScreenScaffold trailing slot from the WHOOP-style redesign (#23).
+        Row(verticalAlignment = Alignment.Top) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(title, style = NoopType.title1, color = Palette.textPrimary)
+                if (subtitle != null) {
+                    Text(subtitle, style = NoopType.subhead, color = Palette.textSecondary)
+                }
             }
+            if (trailing != null) trailing()
         }
         content()
     }

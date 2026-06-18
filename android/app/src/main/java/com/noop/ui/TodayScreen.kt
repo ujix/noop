@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Battery5Bar
 import androidx.compose.material.icons.filled.Bedtime
@@ -146,14 +147,6 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
             else -> date
         }
     }
-    val synthesisTitle = remember(selectedDayOffset) {
-        when (selectedDayOffset) {
-            0 -> "Today's Synthesis"
-            1 -> "Yesterday's Synthesis"
-            else -> "Synthesis"
-        }
-    }
-
     // Display-only unit system + the SI profile weight, read once like every other Settings-backed
     // preference (SharedPreferences isn't reactive — a Settings write triggers recomposition).
     val context = LocalContext.current
@@ -326,7 +319,22 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
     // starting from yesterday. Recomputes when the history window changes.
     val nightStreakLen = remember(days, todayDate) { nightStreak(days, todayDate) }
 
-    ScreenScaffold(title = "Control Center", subtitle = "Your day, read in full") {
+    ScreenScaffold(
+        title = "Control Center",
+        subtitle = "Your day, read in full",
+        trailing = {
+            // Support heart in the compact top bar (the WHOOP-style redesign moved it off the old
+            // "At a glance" hero header). The donation entry point — keep it discoverable.
+            IconButton(onClick = onSupport, modifier = Modifier.size(Metrics.iconButton)) {
+                Icon(
+                    Icons.Filled.Favorite,
+                    contentDescription = "Support NOOP",
+                    tint = Palette.metricRose,
+                    modifier = Modifier.size(Metrics.iconSmall),
+                )
+            }
+        },
+    ) {
         // Live battery (when connected) + the recorded-nights streak, right-aligned above the day
         // selector. Both icons carry a spoken contentDescription so the row reads cleanly aloud.
         Row(
@@ -397,37 +405,12 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
 
         if (alert != null) IllnessBanner(alert!!)
 
-        // HERO — the big gold RecoveryRing + metric rows + gold Synthesis card (RecoveryHeroSection),
-        // then the three Charge / Effort / Rest ring gauges over a scenic backdrop. The support
-        // affordance stays in the section header.
-        Row(verticalAlignment = Alignment.Top) {
-            Box(modifier = Modifier.weight(1f)) {
-                SectionHeader(synthesisTitle, overline = "At a glance", trailing = greetingWord())
-            }
-            IconButton(
-                onClick = onSupport,
-                modifier = Modifier.size(Metrics.iconButton),
-            ) {
-                Icon(
-                    Icons.Filled.Favorite,
-                    contentDescription = "Support NOOP",
-                    tint = Palette.metricRose,
-                    modifier = Modifier.size(Metrics.iconSmall),
-                )
-            }
-        }
-
-        // RECOVERY HERO (README screen #4) — the signature big gold RecoveryRing with its micro NOOP
-        // wordmark + RECOVERY state label, a SOLID/CALIBRATING data-confidence pill, the HRV / Resting
-        // HR / Respiratory metric rows, and a gold Synthesis insight card. Mirrors the Titanium & Gold
-        // Today hero; the three-up Charge/Effort/Rest gauges follow it for the full at-a-glance read.
-        RecoveryHeroSection(
-            day = displayMetric,
-            recoveryCalibration = recoveryCalibration,
-        )
-
-        // The three daily scores as layered ring gauges over a scenic Charge-tinted backdrop. The Effort
-        // gauge prefers the live in-progress strain for today, falling back to the stored value (#402).
+        // HERO — the three Charge / Effort / Rest score rings, Charge centred + enlarged, floating on a
+        // scenic Charge-tinted backdrop (the WHOOP-style hero, #23). The old big gold RecoveryRing hero and
+        // the "At a glance" header are gone: recovery now reads as the enlarged Charge ring, the Support
+        // heart moved to the scaffold's compact top bar, and the Synthesis card + HRV/RHR/Respiratory rows
+        // re-home below. iOS/macOS parity (TodayView.heroSection). The Effort gauge prefers the live
+        // in-progress strain for today, falling back to the stored value (#402).
         ScoreHeroRow(
             day = displayMetric,
             restScore = restScoreForDay,
@@ -435,6 +418,13 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
             effortScale = effortScale,
             liveTodayStrain = if (selectedDayOffset == 0) liveTodayStrain else null,
             onScoreInfo = openGuide,
+        )
+
+        // The plain-English read-out — the gold Synthesis card — carries the greeting + the
+        // SOLID/CALIBRATING data-confidence pill in its top-right. Mirrors the iOS Synthesis InsightCard.
+        SynthesisHeroCard(
+            day = displayMetric,
+            recoveryCalibration = recoveryCalibration,
         )
 
         // Honest "why is Effort 0?" caption (#482/#480) — only when today's Effort is a real
@@ -468,9 +458,12 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
             }
         }
 
+        // The three hero vitals — HRV / Resting HR / Respiratory — re-homed below the ring hero now that
+        // the big RecoveryRing card (which used to carry them) is gone. Mirrors the iOS metric rows.
+        HeroMetricRows(day = displayMetric)
+
         // CONTRIBUTORS (README screen #5, recovery detail) — what drove today's Charge, as labelled
         // progress bars (HRV / Resting HR / Sleep / Respiratory) in the shared stage/zone bar style.
-        // (The plain-English Synthesis insight card is rendered by RecoveryHeroSection, above.)
         RecoveryContributorsSection(day = displayMetric)
 
         // READINESS — on-device training-readiness synthesis (HRV / resting-HR / load).
@@ -633,12 +626,15 @@ private fun DaySelectorBar(selectedOffset: Int, onSelect: (Int) -> Unit) {
     DayNavBar(selectedOffset = selectedOffset, onSelect = onSelect)
 }
 
-// MARK: - Score hero row (Bevel) — three Charge / Effort / Rest ring gauges over a scenic backdrop
+// MARK: - Score hero row — three Charge / Effort / Rest score rings, Charge centred + enlarged
 //
-// The three daily scores as layered [BevelGauge]s, side by side, each in its own colour world,
-// floated over a Charge-tinted [ScenicHeroBackground]. Each cell is a frosted tinted card carrying
-// the gauge, a domain label and the per-score ⓘ. Honest empty / calibrating overlays when a score is
-// null. Mirrors the macOS TodayView.scoreHeroRow. Data wiring is unchanged — presentation only.
+// The WHOOP-style Today hero (#23): the three daily scores as animated [GlowRing]s floating on a
+// Charge-tinted [ScenicHeroBackground], the Charge (recovery) ring centred and ENLARGED as the hero
+// and smaller Rest / Effort rings flanking it, bottom-aligned so all three share a baseline. A tappable
+// UPPERCASE label + chevron sits beneath each ring and opens that score's scoring-guide section. Honest
+// empty / calibrating overlays when a score is null. Mirrors iOS TodayView.scoreHeroRow (order Rest ·
+// Charge · Effort; centre = min(150, max(110, (w-12)/2.3)); side = centre × 0.66; lineWidth = diameter
+// × 0.085). Data wiring is unchanged — presentation only.
 
 @Composable
 private fun ScoreHeroRow(
@@ -652,80 +648,79 @@ private fun ScoreHeroRow(
     val recovery = day?.recovery
     // Prefer the live in-progress Effort for today, but never BELOW the day's already-earned strain
     // (#489/#506: a live under-read replaced today's real Effort with 0). The effective value drives the
-    // gauge number AND the has-data / "—" branch, so the ring only reads "No Data" when neither exists.
-    // Mirrors the iOS live-Effort gauge. (#402)
+    // gauge number AND the has-data / "No Data" branch, so the ring only reads "No Data" when neither
+    // exists. Mirrors the iOS live-Effort gauge. (#402)
     val strain = run {
         val live = liveTodayStrain; val stored = day?.strain
         if (live != null && stored != null) maxOf(live, stored) else (live ?: stored)
     }
+    // Effort honours the 0–100 / WHOOP-0–21 toggle (#313). The stored strain is on NOOP's 0–100 Effort
+    // axis; render it on the user's selected scale so the arc and centre number match the app's Effort.
+    val effortOutOf = if (effortScale == EffortScale.WHOOP) 21.0 else 100.0
+    val effortVal = strain?.let { UnitFormatter.effortValue(it, effortScale) } ?: 0.0
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Metrics.cardRadius)),
     ) {
         ScenicHeroBackground(modifier = Modifier.matchParentSize(), domain = DomainTheme.Charge)
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(Metrics.gap),
-            horizontalArrangement = Arrangement.spacedBy(Metrics.gap),
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Metrics.gap, vertical = Metrics.space18),
         ) {
-            // CHARGE — recovery 0–100. Honest empty / calibrating overlay when null. The ring
-            // diameter is supplied by the cell so three gauges always fit a phone width.
-            HeroScoreCell(
-                modifier = Modifier.weight(1f),
-                domain = DomainTheme.Charge,
-                onInfo = { onScoreInfo(ScoreSection.CHARGE) },
-            ) { ringDiameter ->
-                Box(contentAlignment = Alignment.Center) {
-                    GlowRing(
-                        fraction = ((recovery ?: 0.0) / 100.0).toFloat(),
-                        value = recovery ?: 0.0,
-                        color = Palette.recoveryColor(recovery ?: 0.0),
-                        diameter = ringDiameter,
-                        lineWidth = ringDiameter * 0.10f,
-                        showsLabel = recovery != null,
-                    )
-                    if (recovery == null) RingEmptyOverlay(recoveryCalibration)
+            // Centre (hero) ring sized off width; the flanking rings are ~66% of it. The trio is grouped
+            // tightly and centred, bottom-aligned so the larger Charge ring rises above its neighbours.
+            val center = ((maxWidth - 12.dp) / 2.3f).coerceIn(110.dp, 150.dp)
+            val side = center * 0.66f
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                // REST — sleep composite 0–100, reusing the recovery ring's colour scale.
+                HeroRingColumn(domain = DomainTheme.Rest, onInfo = { onScoreInfo(ScoreSection.REST) }) {
+                    Box(contentAlignment = Alignment.Center) {
+                        GlowRing(
+                            fraction = ((restScore ?: 0.0) / 100.0).toFloat(),
+                            value = restScore ?: 0.0,
+                            color = Palette.recoveryColor(restScore ?: 0.0),
+                            diameter = side,
+                            lineWidth = side * 0.085f,
+                            showsLabel = restScore != null,
+                        )
+                        if (restScore == null) RingNoData()
+                    }
                 }
-            }
-            // EFFORT — strain on the gauge, honouring the 0–100 / WHOOP-0–21 toggle (#313). The stored
-            // strain is on NOOP's 0–100 Effort axis; render it on the user's selected scale so the arc,
-            // centre number and "of N" caption all match the rest of the app's Effort read-outs.
-            val effortOutOf = if (effortScale == EffortScale.WHOOP) 21.0 else 100.0
-            HeroScoreCell(
-                modifier = Modifier.weight(1f),
-                domain = DomainTheme.Effort,
-                onInfo = { onScoreInfo(ScoreSection.EFFORT) },
-            ) { ringDiameter ->
-                Box(contentAlignment = Alignment.Center) {
-                    val effortVal = strain?.let { UnitFormatter.effortValue(it, effortScale) } ?: 0.0
-                    GlowRing(
-                        fraction = (if (effortOutOf > 0) effortVal / effortOutOf else 0.0).toFloat(),
-                        value = effortVal,
-                        color = Palette.effortTint((strain ?: 0.0) / 100.0),
-                        diameter = ringDiameter,
-                        lineWidth = ringDiameter * 0.10f,
-                        showsLabel = strain != null,
-                        format = { if (effortScale == EffortScale.WHOOP) String.format("%.1f", it) else it.toInt().toString() },
-                    )
-                    if (strain == null) RingNoData()
+                // CHARGE — recovery 0–100, the enlarged hero ring. Honest empty / calibrating overlay.
+                HeroRingColumn(domain = DomainTheme.Charge, onInfo = { onScoreInfo(ScoreSection.CHARGE) }) {
+                    Box(contentAlignment = Alignment.Center) {
+                        GlowRing(
+                            fraction = ((recovery ?: 0.0) / 100.0).toFloat(),
+                            value = recovery ?: 0.0,
+                            color = Palette.recoveryColor(recovery ?: 0.0),
+                            diameter = center,
+                            lineWidth = center * 0.085f,
+                            showsLabel = recovery != null,
+                        )
+                        if (recovery == null) RingEmptyOverlay(recoveryCalibration)
+                    }
                 }
-            }
-            // REST — sleep composite 0–100, reusing the recovery ring's scale.
-            HeroScoreCell(
-                modifier = Modifier.weight(1f),
-                domain = DomainTheme.Rest,
-                onInfo = { onScoreInfo(ScoreSection.REST) },
-            ) { ringDiameter ->
-                Box(contentAlignment = Alignment.Center) {
-                    GlowRing(
-                        fraction = ((restScore ?: 0.0) / 100.0).toFloat(),
-                        value = restScore ?: 0.0,
-                        color = Palette.recoveryColor(restScore ?: 0.0),
-                        diameter = ringDiameter,
-                        lineWidth = ringDiameter * 0.10f,
-                        showsLabel = restScore != null,
-                    )
-                    if (restScore == null) RingNoData()
+                // EFFORT — strain on the gauge, on the user's selected scale.
+                HeroRingColumn(domain = DomainTheme.Effort, onInfo = { onScoreInfo(ScoreSection.EFFORT) }) {
+                    Box(contentAlignment = Alignment.Center) {
+                        GlowRing(
+                            fraction = (if (effortOutOf > 0) effortVal / effortOutOf else 0.0).toFloat(),
+                            value = effortVal,
+                            color = Palette.effortTint((strain ?: 0.0) / 100.0),
+                            diameter = side,
+                            lineWidth = side * 0.085f,
+                            showsLabel = strain != null,
+                            format = { if (effortScale == EffortScale.WHOOP) String.format("%.1f", it) else it.toInt().toString() },
+                        )
+                        if (strain == null) RingNoData()
+                    }
                 }
             }
         }
@@ -733,39 +728,75 @@ private fun ScoreHeroRow(
 }
 
 /**
- * One score-ring cell: a frosted tinted card carrying the ring + a domain label + the ⓘ. The cell
- * measures its own width (via [BoxWithConstraints]) and passes the ring a diameter that fits, so the
- * three gauges never overflow on a narrow phone (the macOS adaptive grid reflows to a column instead).
+ * One hero ring column: the ring, with a tappable UPPERCASE domain label + chevron beneath it (the
+ * WHOOP affordance) that opens the matching scoring-guide section. Mirrors the iOS heroRingColumn —
+ * the ring floats on the scenic field with no per-ring card.
  */
 @Composable
-private fun HeroScoreCell(
+private fun HeroRingColumn(
     domain: DomainTheme,
     onInfo: () -> Unit,
-    modifier: Modifier = Modifier,
-    ring: @Composable (ringDiameter: androidx.compose.ui.unit.Dp) -> Unit,
+    ring: @Composable () -> Unit,
 ) {
-    NoopCard(modifier = modifier, padding = Metrics.space12, tint = domain.color) {
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            // Fill most of the cell's inner width (a little inset so the ring doesn't touch the
-            // card edge), capped so a wide tablet column doesn't blow the ring up.
-            val ringDiameter = (maxWidth - 4.dp).coerceIn(56.dp, 120.dp)
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Metrics.space8),
-            ) {
-                Text(
-                    text = domain.label,
-                    style = NoopType.overline,
-                    color = domain.color,
-                )
-                ring(ringDiameter)
-            }
-            ScoreInfoButton(
-                section = null,
-                onClick = onInfo,
-                compact = true,
-                modifier = Modifier.align(Alignment.TopEnd),
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        ring()
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable { onInfo() }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(domain.label, style = NoopType.overline, color = Palette.textSecondary)
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "How ${domain.label} is calculated",
+                tint = Palette.textSecondary.copy(alpha = 0.6f),
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The plain-English Synthesis card — the gold [InsightCard] read-out under the ring hero, carrying the
+ * greeting + the SOLID / CALIBRATING data-confidence pill in its top-right. Mirrors the iOS Synthesis
+ * InsightCard (which moved here when the big RecoveryRing hero that used to own the pill was removed).
+ */
+@Composable
+private fun SynthesisHeroCard(
+    day: DailyMetric?,
+    recoveryCalibration: Int?,
+) {
+    val recovery = day?.recovery
+    Box(modifier = Modifier.fillMaxWidth()) {
+        InsightCard(
+            modifier = Modifier.fillMaxWidth(),
+            category = "Synthesis",
+            status = if (recoveryCalibration != null) "Calibrating" else synthesisWord(recovery),
+            detail = if (recoveryCalibration != null) {
+                "Learning your baseline — $recoveryCalibration of ${Baselines.minNightsSeed} nights."
+            } else {
+                synthesisDetail(day)
+            },
+            statusColor = recovery?.let { Palette.recoveryColor(it) } ?: Palette.textTertiary,
+            tint = Palette.gold,
+        )
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(greetingWord(), style = NoopType.subhead, color = Palette.textSecondary)
+            StatePill(
+                title = if (recovery != null) "SOLID" else "CALIBRATING",
+                tone = if (recovery != null) StrandTone.Accent else StrandTone.Neutral,
             )
         }
     }
@@ -794,74 +825,11 @@ private fun RingNoData() {
     Text(NO_DATA, style = NoopType.headline, color = Palette.textTertiary, maxLines = 1)
 }
 
-// MARK: - Recovery hero (README screen #4) — big gold RecoveryRing + metric rows + gold insight
+// MARK: - Hero vitals metric rows — HRV / Resting HR / Respiratory, re-homed below the ring hero
 //
-// The signature Titanium & Gold Today hero: a SOLID/CALIBRATING data-confidence pill, a large gold
-// [RecoveryRing] (whose centre already carries the micro "NOOP" wordmark, the score and the RECOVERY
-// state label + a solid gold core dot), the HRV / Resting HR / Respiratory metric-row card, then a
-// gold Synthesis [InsightCard]. Floats over a Charge-tinted scenic backdrop, matching the macOS hero.
-// Presentation-only: reads the already-resolved [day]; recovery null → CALIBRATING / No-data overlay.
-
-@Composable
-private fun RecoveryHeroSection(
-    day: DailyMetric?,
-    recoveryCalibration: Int?,
-) {
-    val recovery = day?.recovery
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Metrics.cardRadius)),
-    ) {
-        ScenicHeroBackground(modifier = Modifier.matchParentSize(), domain = DomainTheme.Charge)
-        NoopCard(tint = Palette.chargeColor, padding = Metrics.space18) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Metrics.space16),
-            ) {
-                // Data-confidence pill: SOLID once a score exists, CALIBRATING while the baseline seeds.
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Overline("Recovery", modifier = Modifier.weight(1f), color = Palette.gold)
-                    StatePill(
-                        title = if (recovery != null) "SOLID" else "CALIBRATING",
-                        tone = if (recovery != null) StrandTone.Accent else StrandTone.Neutral,
-                    )
-                }
-
-                // The big gold brand ring. The centre read-out (NOOP wordmark · number · RECOVERY)
-                // is owned by RecoveryRing; an honest overlay stands in while recovery is null.
-                Box(contentAlignment = Alignment.Center) {
-                    RecoveryRing(
-                        score = recovery ?: 0.0,
-                        diameter = 200.dp,
-                        lineWidth = 14.dp,
-                        showsLabel = recovery != null,
-                    )
-                    if (recovery == null) RingEmptyOverlay(recoveryCalibration)
-                }
-
-                // Metric-row card (README "Metric row"): left hue-line icon, label, right bold value
-                // + small unit, rows divided by hairlines. The three Today vitals from the day's row.
-                HeroMetricRows(day = day)
-            }
-        }
-    }
-
-    // Gold Synthesis insight card — the plain-English read-out under the hero. Calibrating → soft copy.
-    InsightCard(
-        modifier = Modifier.fillMaxWidth(),
-        category = "Synthesis",
-        status = if (recoveryCalibration != null) "Calibrating" else synthesisWord(recovery),
-        detail = if (recoveryCalibration != null) {
-            "Learning your baseline — $recoveryCalibration of ${Baselines.minNightsSeed} nights."
-        } else {
-            synthesisDetail(day)
-        },
-        statusColor = recovery?.let { Palette.recoveryColor(it) } ?: Palette.textTertiary,
-        tint = Palette.gold,
-    )
-}
+// The WHOOP-style redesign (#23) dropped the big gold RecoveryRing hero that used to carry these; the
+// three vitals now read directly below the three-ring hero + Synthesis card. [HeroMetricRows] is the
+// README "Metric row" card; the SOLID/CALIBRATING pill + Synthesis insight moved into [SynthesisHeroCard].
 
 /** The three hero vitals as README metric rows — HRV (teal) · Resting HR (rose) · Respiratory (blue). */
 @Composable

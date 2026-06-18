@@ -17,6 +17,16 @@ approximate; downloads are on the [Releases](https://noop.fans/NoopApp/noop/rele
 
 ---
 
+## 4.6.3 — The new Today screen comes to Android
+
+- **Android catch-up.** v4.6.2 brought the WHOOP-style Today hero to iPhone and Mac, but Android only
+  got the new ring *style* inside the old layout — so it didn't actually look like the new design. This
+  finishes the job: Android now leads with the **three score rings (Charge centred and enlarged, Rest and
+  Effort flanking)** over the scenic backdrop, the old big gold recovery ring is gone, the Support heart
+  moved to the top bar, and the HRV / Resting HR / Respiratory rows sit just below — matching iOS & macOS.
+  (Android only; iPhone and Mac were already on this layout in 4.6.2.) Thanks to the folks on Reddit who
+  flagged that Android still looked different.
+
 ## 4.6.2 — A bolder Today screen (all platforms)
 
 - **The Today scores got a glow-up.** Charge, Effort and Rest now ride on crisp, full-circle gauges

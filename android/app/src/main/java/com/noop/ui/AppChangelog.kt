@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "4.6.2"
+    const val CURRENT_VERSION = "4.6.3"
 
     data class Release(
         val version: String,
@@ -36,6 +36,14 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "4.6.3",
+            title = "The new Today screen comes to Android",
+            date = "June 2026",
+            items = listOf(
+                "**The WHOOP-style Today hero is now on Android too.** Charge, Effort and Rest are three glowing rings — Charge enlarged in the centre, Rest and Effort flanking it — over the scenic backdrop, matching iPhone and Mac. The old gold recovery ring made way for it, and your HRV / Resting HR / Respiratory read-outs now sit just below. (Finishing the #23 redesign on Android.)",
+            ),
+        ),
         Release(
             version = "4.6.2",
             title = "A bolder Today screen",
