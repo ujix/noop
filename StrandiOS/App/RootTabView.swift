@@ -475,12 +475,18 @@ private struct FloatingTabBar: View {
 private extension View {
     /// Real iOS 26 Liquid Glass where available; `.ultraThinMaterial` on iOS 17–25 — a clean
     /// blended degrade so the bar stays modern on new OSes without breaking older ones.
+    /// The outer #if swift(>=6.2) guard is a *compile-time* SDK check: glassEffect doesn't
+    /// exist in the Xcode 16 SDK at all, so #available alone isn't enough there.
     @ViewBuilder func liquidGlass(in shape: some Shape) -> some View {
+        #if swift(>=6.2)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular, in: shape)
         } else {
             self.background(.ultraThinMaterial, in: shape)
         }
+        #else
+        self.background(.ultraThinMaterial, in: shape)
+        #endif
     }
 }
 #endif
