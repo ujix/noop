@@ -31,7 +31,10 @@ enum class UpdateKind(val storageValue: String) {
     READING("reading"),
 
     /** a strap-side heads-up (low battery, sync) — informational */
-    STRAP_ALERT("strapAlert");
+    STRAP_ALERT("strapAlert"),
+
+    /** a new app version is available to download */
+    UPDATE_AVAILABLE("updateAvailable");
 
     companion object {
         fun fromStorage(raw: String?): UpdateKind =

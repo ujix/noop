@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.NotificationsOff
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -288,6 +289,7 @@ private fun kindIcon(kind: UpdateKind): ImageVector = when (kind) {
     UpdateKind.WHATS_NEW -> Icons.Outlined.AutoAwesome
     UpdateKind.READING -> Icons.Outlined.MonitorHeart
     UpdateKind.STRAP_ALERT -> Icons.Outlined.Warning
+    UpdateKind.UPDATE_AVAILABLE -> Icons.Outlined.SystemUpdate
 }
 
 /** A per-kind tint drawn from the domain palette so each row reads in its own colour world.
@@ -297,6 +299,7 @@ private fun kindTint(kind: UpdateKind): Color = when (kind) {
     UpdateKind.WHATS_NEW -> Palette.accent
     UpdateKind.READING -> Palette.restColor
     UpdateKind.STRAP_ALERT -> Palette.statusWarning
+    UpdateKind.UPDATE_AVAILABLE -> Palette.accent
 }
 
 /** Tapping a row marks it read, then routes if it carries a deep link (else just stays open). */
