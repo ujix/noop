@@ -78,6 +78,7 @@ import com.noop.ble.WhoopModel
 import com.noop.data.DataBackup
 import com.noop.ingest.RawSensorExport
 import com.noop.ingest.WhoopCsvExporter
+import com.noop.update.ApkDownloader
 import com.noop.update.UpdateCheck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1572,6 +1573,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 // is sent. Android already holds INTERNET (for the opt-in Coach), so this adds nothing.
                 var updChecking by remember { mutableStateOf(false) }
                 var updResult by remember { mutableStateOf<UpdateCheck.Result?>(null) }
+                var updDownloading by remember { mutableStateOf(false) }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1628,20 +1630,49 @@ fun SettingsScreen(vm: AppViewModel) {
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "Version ${avail.version} is available",
-                                    style = NoopType.subhead, color = Palette.textPrimary,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Button(
+                            Text(
+                                "Version ${avail.version} is available",
+                                style = NoopType.subhead, color = Palette.textPrimary,
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                // Primary: download & install directly (only when APK asset exists).
+                                if (avail.apkUrl != null) {
+                                    Button(
+                                        onClick = {
+                                            if (!updDownloading) {
+                                                updDownloading = true
+                                                scope.launch {
+                                                    ApkDownloader.download(context, avail.version, avail.apkUrl)
+                                                    updDownloading = false
+                                                }
+                                            }
+                                        },
+                                        enabled = !updDownloading,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Palette.accent, contentColor = Palette.surfaceBase,
+                                        ),
+                                    ) {
+                                        if (updDownloading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(14.dp).padding(end = 6.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Palette.surfaceBase,
+                                            )
+                                            Text("Downloading…", style = NoopType.captionNumber)
+                                        } else {
+                                            Text("Download & Install", style = NoopType.captionNumber)
+                                        }
+                                    }
+                                }
+                                // Fallback: open the release page in a browser.
+                                OutlinedButton(
                                     onClick = {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(avail.url)))
                                     },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Palette.accent, contentColor = Palette.surfaceBase,
-                                    ),
-                                ) { Text("Download", style = NoopType.captionNumber) }
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.accent),
+                                ) { Text("Open in browser", style = NoopType.captionNumber) }
                             }
                             if (avail.notes.isNotEmpty()) {
                                 Text(
@@ -1656,7 +1687,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     }
 
                     Text(
-                        "Checks GitHub for the latest version when you tap — nothing else is sent.",
+                        "Checks noop.fans for the latest version. The app also checks automatically every 12 h and notifies you when an update is ready.",
                         style = NoopType.footnote, color = Palette.textTertiary,
                     )
                 }

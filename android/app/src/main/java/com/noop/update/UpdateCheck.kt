@@ -19,7 +19,8 @@ object UpdateCheck {
 
     sealed interface Result {
         data class UpToDate(val version: String) : Result
-        data class Available(val version: String, val url: String, val notes: String) : Result
+        /** @property apkUrl Direct download URL for the `.apk` asset, null when unavailable. */
+        data class Available(val version: String, val url: String, val notes: String, val apkUrl: String? = null) : Result
         object Failed : Result
     }
 
@@ -39,7 +40,8 @@ object UpdateCheck {
                 val latest = json.getString("tag_name").removePrefix("v")
                 val url = json.getString("html_url")
                 val notes = cleanNotes(json.optString("body", ""))
-                if (isNewer(latest, currentVersion)) Result.Available(latest, url, notes)
+                val apkUrl = parseApkUrl(json)
+                if (isNewer(latest, currentVersion)) Result.Available(latest, url, notes, apkUrl)
                 else Result.UpToDate(latest)
             } finally {
                 conn.disconnect()
@@ -77,5 +79,19 @@ object UpdateCheck {
         for (marker in listOf("**", "## ", "# ")) s = s.replace(marker, "")
         s = s.trim()
         return if (s.length > 700) s.take(700).trim() + "…" else s
+    }
+
+    /** Parse the first `.apk` asset's direct download URL from the Forgejo release JSON. Returns
+     *  null when no APK asset is listed (e.g. iOS-only releases or assets not yet uploaded). */
+    private fun parseApkUrl(json: JSONObject): String? {
+        val assets = json.optJSONArray("assets") ?: return null
+        for (i in 0 until assets.length()) {
+            val asset = assets.optJSONObject(i) ?: continue
+            val name = asset.optString("name", "")
+            if (name.endsWith(".apk", ignoreCase = true)) {
+                return asset.optString("browser_download_url").takeIf { it.isNotBlank() }
+            }
+        }
+        return null
     }
 }
