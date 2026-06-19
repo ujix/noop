@@ -54,6 +54,10 @@
          request READ_CALL_LOG and never reads incoming numbers, contacts, or call history. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
+    <!-- In-app APK installer: required to launch the system package-installer for a downloaded APK.
+         The user is shown the standard Android install dialog and can cancel at any time. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Smart alarm (#207). The guaranteed wake is an exact OS alarm scheduled via AlarmManager,
          independent of Bluetooth and the app being alive. SCHEDULE_EXACT_ALARM (API 31-32) is
          requested at runtime from the alarm screen; USE_EXACT_ALARM (API 33+) is the alarm-clock
