@@ -1,10 +1,12 @@
 package com.noop.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,18 +21,25 @@ import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.DoneOutline
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,6 +104,7 @@ fun UpdatesInboxScreen(
                     items = unread,
                     onTap = { handleTap(it, store, onDeepLink, onClose) },
                     onRestore = { handleRestore(it, store, onRestore, onClose) },
+                    store = store,
                 )
             }
             if (read.isNotEmpty()) {
@@ -103,6 +113,7 @@ fun UpdatesInboxScreen(
                     items = read,
                     onTap = { handleTap(it, store, onDeepLink, onClose) },
                     onRestore = { handleRestore(it, store, onRestore, onClose) },
+                    store = store,
                 )
             }
 
@@ -158,17 +169,67 @@ private fun subtitle(store: UpdateStore): String {
     return if (n == 0) "All caught up" else "$n unread"
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InboxSection(
     label: String,
     items: List<UpdateItem>,
     onTap: (UpdateItem) -> Unit,
     onRestore: (UpdateItem) -> Unit,
+    store: UpdateStore,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         Overline(label, color = Palette.textTertiary)
         items.forEach { item ->
-            UpdateRow(item = item, onTap = { onTap(item) }, onRestore = { onRestore(item) })
+            // key() forces a fresh rememberSwipeToDismissBoxState when the item transitions from
+            // unread to read — prevents the row staying in its swiped-away position after the
+            // item recomposes into the Earlier section.
+            key("${item.id}:${item.read}") {
+            val dismissState = rememberSwipeToDismissBoxState(
+                confirmValueChange = { value ->
+                    if (value == SwipeToDismissBoxValue.StartToEnd) {
+                        store.markRead(item.id)
+                    }
+                    // Return false: don't let the framework remove the composable. The item stays
+                    // in the list and recomposes as "read" so it moves to the Earlier section.
+                    false
+                },
+            )
+
+            SwipeToDismissBox(
+                state = dismissState,
+                enableDismissFromStartToEnd = !item.read,
+                enableDismissFromEndToStart = false,
+                backgroundContent = {
+                    val progress = dismissState.progress
+                    val bg by animateColorAsState(
+                        targetValue = if (progress > 0.2f) Palette.accent.copy(alpha = 0.15f)
+                        else Color.Transparent,
+                        label = "swipe-bg",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(Metrics.cardRadius))
+                            .background(bg)
+                            .padding(start = 20.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (progress > 0.1f) {
+                            Icon(
+                                Icons.Outlined.DoneOutline,
+                                contentDescription = "Mark as read",
+                                tint = Palette.accent,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                },
+            ) {
+                UpdateRow(item = item, onTap = { onTap(item) }, onRestore = { onRestore(item) })
+            }
+            } // key()
         }
     }
 }
