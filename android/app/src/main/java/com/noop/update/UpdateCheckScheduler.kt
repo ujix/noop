@@ -98,7 +98,7 @@ class UpdateCheckWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle("NOOP ${avail.version} is available")
             .setContentText(avail.notes.lines().firstOrNull { it.isNotBlank() } ?: "Tap to see what's new.")
             .setStyle(NotificationCompat.BigTextStyle().bigText(avail.notes.take(400)))
