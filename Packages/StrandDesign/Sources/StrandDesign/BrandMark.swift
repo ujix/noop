@@ -13,7 +13,7 @@ import SwiftUI
 //     stroke to match the app icon), and
 //   • a solid GOLD CORE DOT centred ("on-device core").
 //
-// Gold-on-navy, matching the app icon (Aaron's brand direction, 2026-06-15).
+// Gold-on-navy, matching the app icon (the maintainer's brand direction, 2026-06-15).
 //
 // It reads as the "O" in NOOP and as a small echo of the hero recovery ring.
 // CLEAN and flat by design: no bloom, no shadow, no glow — the titanium does the

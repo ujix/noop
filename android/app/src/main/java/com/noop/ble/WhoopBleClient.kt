@@ -35,17 +35,22 @@ import com.noop.protocol.BackfillCaptureSummary
 import com.noop.protocol.CommandNumber
 import com.noop.protocol.DeviceFamily
 import com.noop.protocol.Framing
+import com.noop.protocol.HapticClock
 import com.noop.protocol.Reassembler
 import com.noop.protocol.Streams
 import com.noop.protocol.Whoop5Config
 import com.noop.protocol.extractStreams
 import com.noop.analytics.IntelligenceEngine
 import com.noop.analytics.SedentaryDetector
+import com.noop.analytics.StressOnsetDetector
 import com.noop.analytics.UserProfile
+import com.noop.analytics.WorkoutDetector
 import com.noop.ingest.HealthConnectWriter
+import com.noop.ui.BiofeedbackPrefs
 import com.noop.ui.InactivityPrefs
 import com.noop.ui.NoopPrefs
 import com.noop.ui.ProfileStore
+import com.noop.ui.StressNudgeCenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -976,9 +981,11 @@ class WhoopBleClient(
     /** Guards the once-per-connect initial offload kick (Swift `backfillStarted`). */
     private var backfillStarted = false
 
-    /** #364 auto-continue: consecutive immediate re-kicks after a 60s idle-cap exit on THIS connection.
-     *  Bounded by [MAX_AUTO_CONTINUES] so a pathological strap can't pin the radio. Reset to 0 on a real
-     *  HISTORY_COMPLETE (caught up) and on disconnect. Main-looper only. Mirrors Swift
+    /** #364 auto-continue: consecutive immediate re-kicks after a 60s idle-cap OR HISTORY_COMPLETE exit on
+     *  THIS connection. Bounded by [MAX_AUTO_CONTINUES] so a pathological strap can't pin the radio. Reset
+     *  to 0 once [shouldAutoContinue] proves we're caught up (its else path, under the cap) and on
+     *  disconnect — NOT unconditionally on every HISTORY_COMPLETE, so a strap that slices one offload into
+     *  many completions can't reset the cap each slice (#25). Main-looper only. Mirrors Swift
      *  `consecutiveAutoContinues`. */
     private var consecutiveAutoContinues = 0
 
@@ -1463,6 +1470,42 @@ class WhoopBleClient(
     }
 
     /**
+     * Haptic Clock (#460): buzz the current wall-clock time out on the strap so the user can read it
+     * off their wrist without a screen. The pure, unit-tested [HapticClock] encoder turns now into an
+     * ordered pulse list (long = a "ten", short = a "unit", in HH-tens / HH-units / MM-tens / MM-units
+     * order); we then schedule each pulse with [handler].postDelayed, firing the EXISTING maverick
+     * notification buzz ([buzz] → RUN_HAPTICS_PATTERN, remapped to cmd-0x13 on a 5/MG) at each pulse's
+     * start. Only the SCHEDULE is new — the buzz itself is the hardware-confirmed one.
+     *
+     * [is24h] controls 12- vs 24-hour reading; a Settings toggle should supply it (default 12h). Public
+     * so a Settings button can trigger it. Long-press / double-tap strap input is hardware-dependent and
+     * not wired (no tap event is parsed yet — see the macOS hardwareUnverifiable note).
+     *
+     * Each WHOOP notification buzz is a fixed-length motor pulse, so we can't vary the on-time per pulse
+     * from the app; instead a LONG pulse fires two stacked loops and a SHORT pulse one, which the wrist
+     * feels as "longer vs shorter". Pulse-feel timing can only be confirmed on a real strap motor.
+     */
+    fun buzzTimeNow(is24h: Boolean = false, nowMs: Long = System.currentTimeMillis()) {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = nowMs }
+        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = cal.get(java.util.Calendar.MINUTE)
+        val pulses = HapticClock.pulses(hour, minute, is24h)
+        if (pulses.isEmpty()) {
+            log("Haptic Clock: nothing to buzz (00:00 in 24h form).")
+            return
+        }
+        log("Haptic Clock: buzzing ${pulses.size} pulses for the current time (${if (is24h) "24h" else "12h"}).")
+        // Walk the encoder's pulse list, converting each (durationMs,gapMs) into a scheduled buzz.
+        // A long pulse is felt as a heavier buzz (2 stacked loops); a short pulse as a light one (1).
+        var offsetMs = 0L
+        for (pulse in pulses) {
+            val loops = if (pulse.isLong) 2 else 1
+            handler.postDelayed({ buzz(loops) }, offsetMs)
+            offsetMs += (pulse.durationMs + pulse.gapMs).toLong()
+        }
+    }
+
+    /**
      * Inactivity reminder (#419): on each natural offload completion, run the shipped, unit-tested
      * [SedentaryDetector] over the freshly-arrived gravity window and buzz the wrist if the user has
      * been seated too long. NO offload-timer change — a read-only hook on an event that already happens,
@@ -1503,6 +1546,61 @@ class WhoopBleClient(
                 }
             } catch (t: Throwable) {
                 log("Inactivity: check failed (${t.message})")
+            }
+        }
+    }
+
+    /**
+     * L3 closed-loop stress check-in (v5 haptic-biofeedback). On the same natural offload completion that
+     * drives [maybeBuzzInactivity], run the shipped, unit-tested [StressOnsetDetector] over the live R-R
+     * buffer: a FRESH, non-metabolic HRV dip while still fires a single confirming buzz + a passive in-app
+     * card via [StressNudgeCenter.present]. NEVER a push, NEVER a diagnosis — "stress" is an autonomic
+     * proxy vs the user's OWN baseline. All gating + de-dup is in the engine; we only supply honest inputs
+     * (the rolling R-R, the live HR, recent motion, the worn flag) and persist the engine's [nextState] so
+     * a replayed window can't re-fire. Master/sub toggles + quiet hours come from [BiofeedbackPrefs].
+     *
+     * See docs/superpowers/specs/2026-06-19-v5-haptic-biofeedback-design.md (L3).
+     */
+    private fun maybeNudgeStress() {
+        val config = BiofeedbackPrefs.stressConfig(context)
+        // Cheap master gate before any DB work — inert when the feature/auto-nudge is off.
+        if (!config.enabled || !config.autoNudge) return
+        ioScope.launch {
+            try {
+                val nowSec = System.currentTimeMillis() / 1000L
+                // Recent wrist-motion (g): the smoothed activity intensity over the freshly-arrived
+                // gravity window, the same primitive SedentaryDetector reuses. Null when there's no
+                // recent gravity — the engine then leans on the resting-HR band gate (spec Q3).
+                val from = nowSec - INACTIVITY_LOOKBACK_S
+                val grav = runCatching { repository.gravitySamples(deviceId, from, nowSec) }.getOrDefault(emptyList())
+                val recentMotionG = WorkoutDetector.activitySeries(grav).lastOrNull()?.intensity
+
+                val live = _state.value
+                val decision = StressOnsetDetector.evaluate(
+                    rrBuffer = live.rrRecent,
+                    currentHR = live.heartRate?.toDouble(),
+                    recentMotionG = recentMotionG,
+                    // We never offer the cue over a manual Breathe/L1/L2 session; the BLE layer doesn't
+                    // track that, so leave it false — the in-app card is also suppressed by its own UI.
+                    sessionActive = false,
+                    state = BiofeedbackPrefs.loadStressState(context),
+                    config = config,
+                    nowSec = nowSec,
+                    tzOffsetSec = InactivityPrefs.tzOffsetSec(nowSec),
+                )
+                // Persist the advanced de-dup/EMA state every run so a replayed window can't re-fire.
+                BiofeedbackPrefs.saveStressState(context, decision.nextState)
+
+                if (decision.shouldNudge) {
+                    handler.post { buzz(decision.buzzLoops) }
+                    StressNudgeCenter.present(
+                        fastRMSSD = decision.fastRMSSD,
+                        baselineRMSSD = decision.baselineRMSSD,
+                    )
+                    log("Stress check-in: nudged on a fresh non-metabolic HRV dip.")
+                }
+            } catch (t: Throwable) {
+                log("Stress check-in: check failed (${t.message})")
             }
         }
     }
@@ -3188,7 +3286,12 @@ class WhoopBleClient(
         log("Backfill: session ended — reason=$reason")
         // Inactivity reminder (#419): read-only hook on the natural offload completion (no cadence
         // change). Only on a true HISTORY_COMPLETE — a timeout/disconnect didn't bring a fresh window.
-        if (reason == "HISTORY_COMPLETE") maybeBuzzInactivity()
+        if (reason == "HISTORY_COMPLETE") {
+            maybeBuzzInactivity()
+            // L3 stress check-in (v5): same read-only hook — fire the StressOnsetDetector over the live
+            // R-R buffer. Self-gates on the BiofeedbackPrefs master/auto toggles (inert when off).
+            maybeNudgeStress()
+        }
         // Success-side summary (#150 forensics): we logged failures (decoded-to-0) but never successes,
         // so a strap log couldn't tell a banking strap from a broken one. Emit the per-session persistence
         // tally whenever anything actually landed — the win-rate signal a log previously lacked. Mirrors
@@ -3203,24 +3306,29 @@ class WhoopBleClient(
         val currentTrim = backfiller.lastAckedTrim
         val trimAdvanced = currentTrim != null && currentTrim != lastSessionEndTrim
         lastSessionEndTrim = currentTrim
-        if (reason == "HISTORY_COMPLETE") {
-            // Ran to true completion ⇒ caught up. Clear the streak so the NEXT deep backlog (e.g. after
-            // the app's been off again) gets a fresh budget of re-kicks.
-            consecutiveAutoContinues = 0
-        } else if (reason == "timeout") {
-            // A 60s idle-cap exit while still connected, with more backlog and the trim advancing,
-            // immediately re-kicks instead of waiting the 900s periodic floor — so a deep oldest-first
-            // backlog drains in back-to-back ~60s passes. Bounded by the cap + spin-detector.
+        // #364 / #25: a session that ended on the 60s idle-cap OR on a true HISTORY_COMPLETE, while still
+        // connected, with more backlog and the trim advancing, immediately re-kicks instead of waiting the
+        // 900s periodic floor — so a deep oldest-first backlog drains in back-to-back ~60s passes. #25:
+        // fire on HISTORY_COMPLETE too — some straps segment a deep overnight offload into many small
+        // HISTORY_COMPLETE slices and would otherwise stall between slices until the periodic floor. The
+        // streak is NO LONGER reset unconditionally on HISTORY_COMPLETE: a sliced offload would otherwise
+        // reset it on every slice and never engage the 6-per-connection cap. shouldAutoContinue's guards
+        // make this safe (a caught-up strap returns false and stops); the streak is cleared only once that
+        // predicate proves we're caught up — inside maybeAutoContinueBackfill's else path. Bounded by the
+        // cap + spin-detector either way.
+        if (reason == "timeout" || reason == "HISTORY_COMPLETE") {
             maybeAutoContinueBackfill(trimAdvanced, backfiller.sessionRowsPersisted)
         }
     }
 
     /**
-     * #364: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s idle-cap
-     * exit. The "more backlog remains" test needs our persisted data frontier (max HR ts) from the
-     * repository, so it reads on [ioScope] then re-kicks back on the main looper via [requestSync] (the
-     * SAME gated path the auto-kick + periodic timer use — it re-checks connected/bonded/not-backfilling,
-     * so this can't double-start). The decision is the pure [shouldAutoContinue] so it stays unit-testable.
+     * #364 / #25: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s
+     * idle-cap exit OR a HISTORY_COMPLETE. The "more backlog remains" test needs our persisted data
+     * frontier (max HR ts) from the repository, so it reads on [ioScope] then re-kicks back on the main
+     * looper via [requestSync] (the SAME gated path the auto-kick + periodic timer use — it re-checks
+     * connected/bonded/not-backfilling, so this can't double-start). On the else (caught-up, under-cap)
+     * path it instead clears [consecutiveAutoContinues] (#25). The decision is the pure [shouldAutoContinue]
+     * so it stays unit-testable.
      * [trimAdvanced] is the spin-detector signal computed in [exitBackfilling] (passed in because that
      * method has already advanced [lastSessionEndTrim] past the comparison point). Android has no
      * BackfillPolicy floor ported (only the 900s timer), so [requestSync] needs no special bypass tier —
@@ -3242,6 +3350,16 @@ class WhoopBleClient(
                     rowsPersistedThisSession = rowsPersisted,
                 )
             ) {
+                // No re-kick. THIS is the real "we're done draining" signal (#25): clear the streak so the
+                // NEXT deep backlog (e.g. after the app's been off again) gets a fresh budget of re-kicks.
+                // Reset here — NOT unconditionally on every HISTORY_COMPLETE — so a strap that slices one
+                // offload into many completions can't keep resetting the cap and spin forever. EXCEPTION: if
+                // we stopped because the per-connection CAP is hit, leave the streak at/over the cap so it
+                // STAYS engaged for the rest of this connection (the 900s floor takes over); zeroing it here
+                // would immediately re-arm the cap and let a runaway strap spin again.
+                if (count < MAX_AUTO_CONTINUES) {
+                    handler.post { consecutiveAutoContinues = 0 }
+                }
                 return@launch
             }
             handler.post {

@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 /// User profile (age/sex/body metrics/HR-max) persisted in UserDefaults.
 /// Powers HR zones, calories and recovery baselines.
@@ -37,6 +38,18 @@ final class ProfileStore: ObservableObject {
     /// User-set manual coefficient. 0 = auto-fit (nil to the engine); > 0 = manual override.
     @Published var stepsManualCoefficient: Double { didSet { d.set(max(0, stepsManualCoefficient), forKey: K.stepsManualCoeff) } }
 
+    // ── Profile picture (optional, on-device only) ──────────────────────────────────────────────
+    /// The user's chosen profile photo as JPEG bytes, or nil for the default SF-Symbol fallback.
+    /// LOCAL-ONLY — like every other field here it lives in UserDefaults on this device; NOOP is
+    /// fully offline so this is never uploaded anywhere. Always set via ``setAvatar(_:)`` (which
+    /// downscales) rather than written directly, so the persisted blob stays small (~256px).
+    @Published var avatarImageData: Data? {
+        didSet {
+            if let avatarImageData { d.set(avatarImageData, forKey: K.avatar) }
+            else { d.removeObject(forKey: K.avatar) }
+        }
+    }
+
     private let d = UserDefaults.standard
     private enum K {
         static let age = "profile.age", sex = "profile.sex", weight = "profile.weightKg"
@@ -48,6 +61,7 @@ final class ProfileStore: ObservableObject {
         static let stepsConfidence = "profile.stepsCalibrationConfidence"
         static let stepsManualFlag = "profile.stepsCalibrationManual"
         static let stepsManualCoeff = "profile.stepsManualCoefficient"
+        static let avatar = "profile.avatarImageData"
     }
 
     init() {
@@ -63,7 +77,35 @@ final class ProfileStore: ObservableObject {
         stepsCalibrationConfidence = d.object(forKey: K.stepsConfidence) as? Double ?? 0
         stepsCalibrationManual = d.object(forKey: K.stepsManualFlag) as? Bool ?? false
         stepsManualCoefficient = max(0, d.object(forKey: K.stepsManualCoeff) as? Double ?? 0)
+        avatarImageData = d.data(forKey: K.avatar)
     }
+
+    // MARK: - Profile picture
+
+    /// The profile photo as a SwiftUI `Image`, or nil when none is set (callers fall back to the
+    /// `person.crop.circle` SF Symbol). Bridges the stored JPEG bytes through the platform bitmap
+    /// type (`NSImage`/`UIImage`) via the shared `Image(platformImage:)` initializer.
+    var avatarImage: Image? {
+        guard let data = avatarImageData, let img = PlatformImage(data: data) else { return nil }
+        return Image(platformImage: img)
+    }
+
+    /// Whether a profile photo is set.
+    var hasAvatar: Bool { avatarImageData != nil }
+
+    /// Set the profile photo from raw image bytes (e.g. from a `PhotosPicker` / `NSOpenPanel`),
+    /// downscaling to a small square so the persisted UserDefaults blob stays tiny. Passing nil
+    /// clears it. If downscaling can't decode the bytes, the originals are stored as-is rather than
+    /// dropping the user's pick. To remove a photo, pass nil or call ``clearAvatar()``.
+    func setAvatar(_ data: Data?) {
+        guard let data else { avatarImageData = nil; return }
+        // Downscale to ~256px before persisting; fall back to the raw bytes if decoding fails so a
+        // valid-but-unusual image still saves rather than silently dropping.
+        avatarImageData = AvatarImage.downscaledJPEG(from: data, maxDimension: 256) ?? data
+    }
+
+    /// Remove the profile photo (reverts the header / Settings to the default icon).
+    func clearAvatar() { avatarImageData = nil }
 
     /// The manual override to feed into `StepsEstimateEngine.calibrate(_:manualOverride:)`:
     /// nil when 0 (auto-fit), the positive value otherwise.

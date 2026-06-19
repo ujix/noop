@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "4.6.0"
+    static let currentVersion = "5.1.2"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,108 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "5.1.2",
+            title: "Design polish & cross-platform parity",
+            date: "June 2026",
+            items: [
+                "**A more consistent app across iPhone, Mac and Android.** The More page, the Updates inbox, the home cards and the menus now match on every device — same layout, same styling, in light and dark.",
+                "**A tidier More page.** Everything's grouped under **Insights · Body · Data · App** in clean cards, one tap from the More tab.",
+                "**A sharper Updates inbox.** Crisper cards that stand out from the background, a clearer **Mark all read** button, and a tidy notification badge.",
+                "**Mac:** the Support heart and the Updates bell now sit at opposite ends of the window toolbar.",
+            ]),
+        Release(
+            version: "5.1.0",
+            title: "A cleaner home — refreshed design, a new inbox, your photo",
+            date: "June 2026",
+            items: [
+                "**A cleaner home.** The bottom bar is now four tidy tabs — **Today · Trends · Sleep · More** — and the quick-action **+** has moved up to the top-right of your home screen, balancing your profile on the left. Same actions (start a workout, log your journal, breathe), much less clutter.",
+                "**A new Updates inbox.** Tap the **bell** in the top-right to see what's new — fresh readings and history that landed, what's-new notes, and any home cards you've tucked away. A small gold badge shows when there's something unread. Hit the **×** on a home card to send it to the inbox, and pull it back any time with **Restore to Today**.",
+                "**Make it yours — a profile photo.** Tap your profile (top-left) → **Settings → Profile photo** and choose a picture. It shows on your home screen and stays **only on your device** — NOOP is offline, so it's never uploaded.",
+                "**Cleaner, crisper design.** We blended the glass-and-material look, dialled back the glow across the whole app for sharper lines, evened up the spacing around the little pill toggles, and onboarding now shows up front that you can switch **Light · Dark · System** whenever you like (**Settings → Appearance**).",
+                "**Same look on every device.** The refreshed layout and approach land on Mac, iPhone and Android together.",
+            ]),
+        Release(
+            version: "5.0.1",
+            title: "Stability & polish for v5",
+            date: "June 2026",
+            items: [
+                "**Fixed: some panels rendered with overlapping text on Mac.** A few of the new v5 screens — the Lab Book \"Add a reading\" sheet, Breathe, a workout's detail, the Trends report and the \"Your Data, Fused\" compare — could open with their title, fields and lists stacked on top of each other. They now lay out as clean, scrollable forms.",
+                "**Fixed: the Lab Book marker picker now scrolls to every marker.** It was only showing the first handful and hiding the rest — all of them are reachable now.",
+                "**Polish:** Breathe's pace buttons no longer get cut off on a narrow phone, the Insights toggles stop crowding their headers, and the Rhythm \"extra/skipped\" figure is shown in a calm tone (it's a picture, never an alarm).",
+                "**Android parity:** the Breathe screen now offers your locked Resonance pace and uses the calm Rest colours, and the Health screen gained quick links to Lab Book and Your Data, Fused.",
+            ]),
+        Release(
+            version: "5.0.0",
+            title: "v5 — the raw-signal release: NOOP reads the signal, on your device, free",
+            date: "June 2026",
+            items: [
+                "**The big idea.** Everyone else shows you a score their cloud computed, behind a subscription. NOOP reads your strap's raw signals — beat-to-beat timing, red/IR PPG, motion, skin temperature — and does all the maths on your own device, free and offline. And it's the only one that can actually breathe you back down. Seven new things below, plus a tidier home: everything now lives under five places — **Today · What Moves You · Health · Devices & Sources · Settings**.",
+                "**Haptic biofeedback — the strap that breathes you down.** Your wrist motor can now pace your breathing with the screen off. Find your personal calm pace (open **Breathe → Resonance → Find your resonance pace**, pick the ~13-min or ~7-min sweep), then breathe to the buzz. Mid-stress, tap **Calm me · 3 min** for a felt metronome just below your heart rate. Optional passive check-ins: **Settings → Automations → Stress check-ins (haptic)** (off by default).",
+                "**What Moves You.** A ranked, lag-aware read of what actually moves *your* recovery — from your own journal and outcomes, not population averages. Log alcohol or late caffeine with an amount and NOOP fits a personal dose-response curve, then in the evening tells you what one more drink tends to cost tomorrow's Charge. Open **What Moves You** (the wand in the sidebar / Insights).",
+                "**Skin-temperature suite.** Three features off the one signal WHOOP already streams: cycle-phase **awareness** (opt-in, on-device, never contraception or a fertility predictor), a **Body clock** jet-lag/shift helper, and a smarter illness **Heads-up** that cross-checks your journal so a night out doesn't cry wolf. Find them in **Health → Skin temperature**; turn cycle awareness on there, illness watch under **Settings → Automations**.",
+                "**Your Data, Fused.** If you wear more than one band, NOOP now shows one honest record — best source wins per metric, with the source named on every number and conflicts flagged, never silently averaged. Open **Your Data, Fused** from **Health** or Data Sources. A single WHOOP just shows a clean plain record.",
+                "**Lab Book — your own private logbook.** Type in your bloods, blood pressure, scan values or doctor's-visit notes (or import a CSV), see each marker's trend, and line a marker up against a wearable signal with **Compare with a signal**. It's a notebook, not a medical service — NOOP stores and lines up the numbers *you* enter, never tests, reads or diagnoses them, and it all stays on your device. Open **Health → Lab Book**.",
+                "**Rhythm (experimental).** A picture of your beat-to-beat timing — a Poincaré scatter with plain descriptive stats. It's a visualisation, not a verdict: not an ECG, not a diagnosis, can't detect any heart condition. Off by default behind a consent screen: **Settings → Rhythm → Turn on Rhythm**.",
+                "**A smarter, still-private AI Coach.** The opt-in bring-your-own-key Coach can now optionally reason over your on-device patterns and Lab Book markers — summaries only, nothing raw ever leaves your device. Turn it on in **Coach** with **Also share my patterns & Lab Book** (off by default; your key, your choice of provider).",
+            ]),
+        Release(
+            version: "4.9.1",
+            title: "More realistic calories + honest alarm wording",
+            date: "June 2026",
+            items: [
+                "**More realistic daily calories.** The all-day energy estimate was running high — it credited ordinary daytime heart rate at exercise intensity. Now only genuine exertion counts at the higher rate, so your daily burn reads closer to reality. (Thanks to everyone on the subreddit who flagged it.)",
+                "**Honest Smart-alarm wording.** The Smart-alarm card now says up front that a strap-driven wake is experimental and hasn't been verified to fire on WHOOP 4.0 or 5/MG — so keep a backup alarm. (No behaviour change; we just stopped over-promising.)",
+                "**Smoother iPhone sideloading.** Fixed the AltStore/SideStore source so adding it no longer fails with \"given data not valid JSON\" (the old link pointed at a host that's gone).",
+            ]),
+        Release(
+            version: "4.9.0",
+            title: "Steadier heart rate + a stack of fixes",
+            date: "June 2026",
+            items: [
+                "**Steadier live heart rate.** The Health tab and the Mac menu bar now show the same spike-filtered reading as the Live screen, so a brief sensor blip no longer flashes a wild number like 170+. (Thanks @ryanbr and @bringiton321 — #39.)",
+                "**Homebrew install fixed (macOS).** `brew install` works again — the tap command now points at the project's self-hosted home; the old short form pointed at a host that no longer serves it. See the README for the one-line command. (Thanks @tonyjacked — #44.)",
+            ]),
+        Release(
+            version: "4.8.0",
+            title: "On-demand HRV, a haptic clock, sleep marks & more",
+            date: "June 2026",
+            items: [
+                "**New: take an HRV reading on demand.** An \"HRV reading\" button on the Live screen captures about 60 seconds of your heart's beat-to-beat timing and gives you a single RMSSD reading right there — sit still, breathe normally, and watch it settle. Saved alongside the rest of your data. (#127.)",
+                "**New: feel the time — Haptic Clock.** Your strap can now buzz out the current time: long buzzes for tens, short for units, hours then minutes. Set a strap double-tap to \"Buzz the time\" under Automations (on Android there's a \"Buzz the time\" button in Settings → Diagnostics). (#460.)",
+                "**New: tap to mark sleep.** Two buttons on the Sleep screen — \"Going to sleep\" and \"I'm awake\" — log a timestamped mark so you keep your own record of when you turned in and woke up. (#461.)",
+                "**New: scheduled debug export (Android).** Turn on a daily auto-export of your strap log at a time you choose, written with timestamped filenames — handy for attaching to a bug report without remembering to grab it. (Thanks @maddognik — #510.)",
+                "**Clearer steps screen on a WHOOP 4.0.** If your strap hasn't synced any motion yet, the Steps calibration screen now explains why it's empty — it needs your strap's banked motion history to sync first. (Thanks @bringiton321 — #37.)",
+            ]),
+        Release(
+            version: "4.7.0",
+            title: "Mi Band import + a big WHOOP 4.0 sleep fix",
+            date: "June 2026",
+            items: [
+                "**New: import a Xiaomi Mi Band.** Bring a Mi Band / Smart Band 8, 9 or 10's full history — steps, heart rate, resting HR, sleep stages, SpO₂, stress and sleep score — straight from the Mi Fitness app's on-device database. No Bluetooth, no Xiaomi account; it gets its own page with a per-night hypnogram and shows up across Explore, Compare and Correlations. (Thanks @matt — #35.)",
+                "**Fixed: WHOOP 4.0 sleep tracking.** A 4.0 night rebuilt from clumped motion was being shredded at each long dropout into fragments and thrown away — so you'd get ~0 sleep or a night split in half with the wrong start. It now bridges across the dropouts (vouched by heart rate) into one correct night. (Thanks @ryanbr — #28, #33.)",
+                "**Fixed: no more \"-874 kcal\".** A workout's calories were drawn with a trend arrow that read as a minus sign — plain numbers now show no arrow. (Thanks @Dumbledodge — #41.)",
+                "**Fixed: Explore taps** on iPhone no longer flash the detail and bounce back. (Thanks @matt — #38.)",
+                "**Cleaner Settings on a WHOOP 4.0** — the 5/MG-only experimental controls are hidden when you're on a 4.0 (your strap model is detected automatically). (#22.)",
+                "**Faster overnight catch-up** after your phone's been off — a strap that drip-feeds its history now drains back-to-back instead of stalling between chunks. (#25.)",
+                "**Bounded local storage** — the experimental raw-capture buffers are now size-capped. (#27.)",
+                "**Apple Health body composition** — NOOP now reads your weight, body-fat %, lean mass and BMI from Apple Health on iPhone. (Thanks @h3ld3r — #20.)",
+            ]),
+        Release(
+            version: "4.6.2",
+            title: "A bolder Today screen",
+            date: "June 2026",
+            items: [
+                "**The Today scores got a glow-up.** Charge, Effort and Rest now ride on crisp, full-circle gauges that sweep in and count up — a cleaner, bolder at-a-glance read on iPhone and Android. (Thanks to @unruffled688 for the iOS redesign — #23.)",
+                "Fixed: the **Releases** links in the project README and docs pointed at a path that returned a 404 on the new home — they now go straight to the downloads page. (#26)",
+            ]),
+        Release(
+            version: "4.6.1",
+            title: "NOOP has a new home",
+            date: "June 2026",
+            items: [
+                "**NOOP now lives at noop.fans.** After the project's GitHub was taken offline, NOOP moved to its own independent home — code, releases, the wiki and issues. **Settings → About** now links straight there, and **Check for updates** reads from the new home (if GitHub ever comes back it'll be kept as a mirror). Nothing on your device changed and everything keeps working — this just points the app at where the project lives now. Keeping it online costs real money, so if NOOP is useful to you, please consider a donation. #KeepNOOPAlive",
+            ]),
         Release(
             version: "4.6.0",
             title: "Editable naps, a richer Trends report, and better debug export",

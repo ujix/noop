@@ -5,42 +5,41 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Sensors
@@ -49,64 +48,55 @@ import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.DrawerValue
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.noop.analytics.FusionSource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.noop.BuildConfig
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import kotlinx.coroutines.launch
 
 // MARK: - Navigation model
 //
-// The macOS app's sidebar holds many sections; on Android we mirror that with a
-// ModalNavigationDrawer (hamburger in the top bar) for the full grouped list, plus a
-// bottom NavigationBar for the four everyday screens (Today/Trends/Live/Sleep) with a
-// "More" sheet that reuses the same groups — both routes reach every destination.
-// Destinations are grouped exactly as the sidebar groups them. Routes whose screens
-// belong to later waves point at a ComingSoon placeholder so the app compiles today.
+// The macOS app's sidebar holds many sections; on Android (mirroring the iOS RootTabView) we surface
+// them through a unified floating "glass" bottom bar (Today · Trends · Sleep · More) for the everyday
+// screens, with a "More" sheet that lists the full grouped set — so every destination is one tap away
+// without a global hamburger/drawer. Destinations are grouped exactly as the sidebar groups them.
+// Routes whose screens belong to later waves point at a ComingSoon placeholder so the app compiles today.
 
 /** A single drawer destination: stable route, display title, sidebar icon. */
 private enum class Destination(
@@ -133,6 +123,7 @@ private enum class Destination(
 
     // Group: Insight
     Coach("coach", "Coach", Icons.Filled.AutoAwesome),
+    InsightsHub("insights_hub", "What Moves You", Icons.Filled.Insights),
     Insights("insights", "Insights", Icons.Filled.Insights),
     Explore("explore", "Explore", Icons.Filled.Explore),
     Compare("compare", "Compare", Icons.AutoMirrored.Filled.CompareArrows),
@@ -141,6 +132,8 @@ private enum class Destination(
     Health("health", "Health", Icons.Filled.MonitorHeart),
     VitalSigns("vital_signs", "Vital Signs", Icons.Filled.HealthAndSafety),
     VitalSignsDetail("vital_detail/{key}", "Vital Signs", Icons.Filled.HealthAndSafety),
+    LabBook("lab_book", "Lab Book", Icons.Filled.HealthAndSafety),
+    Rhythm("rhythm", "Rhythm", Icons.Filled.MonitorHeart),
     AppleHealth("apple_health", "Apple Health", Icons.Filled.HealthAndSafety),
 
     // Group: System
@@ -148,9 +141,14 @@ private enum class Destination(
     SmartAlarm("smart_alarm", "Smart Alarm", Icons.Filled.Alarm),
     Devices("devices", "Devices", Icons.Filled.Sensors),
     DataSources("data_sources", "Data Sources", Icons.Filled.Storage),
+    FusedRecord("fused_record", "Your Data, Fused", Icons.AutoMirrored.Filled.CompareArrows),
     Notifications("notifications", "Notifications", Icons.Filled.Notifications),
     Support("support", "Support", Icons.Filled.Tune),
-    Settings("settings", "Settings", Icons.Filled.Settings);
+    Settings("settings", "Settings", Icons.Filled.Settings),
+
+    // The "More" tab: its own navigated page (mirroring the iOS More tab) that hosts the full
+    // grouped destination list. It is NOT itself in any [DrawerGroup] — it's the door to them.
+    More("more", "More", Icons.Filled.MoreHoriz);
 
     companion object {
         /** Resolve the destination owning the current back-stack route (defaults to Today). */
@@ -163,222 +161,68 @@ private enum class Destination(
     }
 }
 
-/** Sidebar groups, mirroring the macOS section ordering. */
+/** More-page groups, mirroring the iOS More tab exactly: Insights · Body · Data · App. */
 private data class DrawerGroup(val header: String, val items: List<Destination>)
 
+// Mirrors the iOS RootTabView `moreTab` grouping + order one-for-one. Today / Trends / Sleep are NOT
+// listed (they're bottom-bar tabs, exactly as on iOS). Android-only screens (Vital Signs, Smart Alarm,
+// Notifications, Devices) are slotted into the matching iOS group.
 private val drawerGroups: List<DrawerGroup> = listOf(
-    DrawerGroup("Overview", listOf(Destination.Today, Destination.Intelligence)),
-    DrawerGroup("Live", listOf(Destination.Live, Destination.Intervals)),
-    DrawerGroup("Charge", listOf(Destination.Sleep, Destination.Breathe, Destination.Stress)),
-    DrawerGroup("Activity", listOf(Destination.Workouts, Destination.Trends)),
-    DrawerGroup("Insight", listOf(
-        Destination.Coach, Destination.Insights, Destination.Explore, Destination.Compare,
+    DrawerGroup("Insights", listOf(
+        Destination.InsightsHub, Destination.Intelligence, Destination.Coach,
+        Destination.Insights, Destination.Explore, Destination.Compare,
     )),
-    DrawerGroup("Health", listOf(Destination.Health, Destination.VitalSigns, Destination.AppleHealth)),
-    DrawerGroup("System", listOf(
-        Destination.Automations, Destination.SmartAlarm, Destination.Devices, Destination.DataSources,
-        Destination.Notifications, Destination.Support, Destination.Settings,
+    DrawerGroup("Body", listOf(
+        Destination.Live, Destination.Workouts, Destination.Health, Destination.VitalSigns,
+        Destination.LabBook, Destination.Stress, Destination.Breathe, Destination.Intervals,
+        Destination.Rhythm,
     )),
-)
-
-/** The everyday screens that earn a permanent bottom tab. Three tabs + a "More" item flank the
- *  raised centre FAB so it sits in a real gap (between Trends and Sleep) rather than on top of a
- *  tab. Live (real-time HR) is a "watch it now" action — it lives on the FAB's quick-action sheet
- *  and in the drawer, not on the bar. */
-private val bottomTabs = listOf(
-    Destination.Today, Destination.Trends, Destination.Sleep,
+    DrawerGroup("Data", listOf(
+        Destination.FusedRecord, Destination.AppleHealth, Destination.DataSources, Destination.Devices,
+    )),
+    DrawerGroup("App", listOf(
+        Destination.Automations, Destination.SmartAlarm, Destination.Notifications,
+        Destination.Settings, Destination.Support,
+    )),
 )
 
 /**
- * App shell: a bottom [NavigationBar] (Today/Trends/Live/Sleep + a "More" sheet) and a
- * [ModalNavigationDrawer] (hamburger in a [TopAppBar] titled with the current screen),
- * both driving one [NavHost]. A single [AppViewModel] is created here and shared with
- * every screen, so the BLE connection and cached metrics stay app-wide singletons.
+ * App shell: a single [Scaffold] with a floating [GlassBottomBar] (Today · Trends · Sleep · More)
+ * driving one [NavHost], mirroring the iOS RootTabView. There is NO global toolbar and no nav drawer
+ * — every screen self-titles via [ScreenScaffold], and the "More" sheet (opened from the bar) reaches
+ * every destination in [drawerGroups], so nothing is lost. A single [AppViewModel] is created here and
+ * shared with every screen, so the BLE connection and cached metrics stay app-wide singletons.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRoot(viewModel: AppViewModel = viewModel()) {
     val nav = rememberNavController()
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
 
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val current = Destination.forRoute(currentRoute)
-    var showMoreSheet by remember { mutableStateOf(false) }
     var showQuickActions by remember { mutableStateOf(false) }
+    // The Updates inbox sheet (opened by the Today header bell). The store is a process singleton so
+    // the Today cards and the import path post to the same inbox this sheet renders.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val updateStore = remember { UpdateStore.from(context) }
+    var showUpdatesInbox by remember { mutableStateOf(false) }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = Palette.surfaceRaised,
-                drawerContentColor = Palette.textPrimary,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 16.dp),
-                ) {
-                    // Drawer header: brand glyph beside the "Strand · Instrument" lockup so the
-                    // logo reads at the top of the navigation, matching the in-app top bar.
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 12.dp),
-                    ) {
-                        BrandMark(size = 22.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Column {
-                            Overline(
-                                "Strand",
-                                modifier = Modifier.padding(bottom = 4.dp),
-                                color = Palette.accent,
-                            )
-                            Text(
-                                "Instrument",
-                                style = NoopType.footnote,
-                                color = Palette.textTertiary,
-                            )
-                        }
-                    }
-
-                    drawerGroups.forEachIndexed { index, group ->
-                        if (index > 0) {
-                            HorizontalDivider(
-                                color = Palette.hairline,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                        }
-                        Overline(
-                            group.header,
-                            modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 6.dp),
-                            color = Palette.textTertiary,
-                        )
-                        group.items.forEach { dest ->
-                            val selected = backStack?.destination?.hierarchy
-                                ?.any { it.route == dest.route } == true
-                            NavigationDrawerItem(
-                                selected = selected,
-                                onClick = {
-                                    scope.launch { drawerState.close() }
-                                    if (dest.route != currentRoute) {
-                                        nav.navigateTopLevel(dest.route)
-                                    }
-                                },
-                                icon = { Icon(dest.icon, contentDescription = null) },
-                                label = { Text(dest.title, style = NoopType.body) },
-                                colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = Palette.surfaceOverlay, // subtle neutral lift, no gold wash
-                                    unselectedContainerColor = Palette.surfaceRaised,
-                                    selectedIconColor = Palette.accent,
-                                    unselectedIconColor = Palette.textSecondary,
-                                    selectedTextColor = Palette.textPrimary,
-                                    unselectedTextColor = Palette.textSecondary,
-                                ),
-                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                            )
-                        }
-                    }
-                }
-            }
-        },
-    ) {
+    run {
         Scaffold(
             containerColor = Palette.surfaceBase,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Brand glyph reads in-app on every screen — the open recovery ring
-                            // ("O" of NOOP) sits just before the screen title.
-                            BrandMark(size = 22.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Text(current.title, style = NoopType.title2, color = Palette.textPrimary)
-                            if (BuildConfig.ENABLE_DEMO) {
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    "DEMO",
-                                    style = NoopType.footnote,
-                                    color = Palette.surfaceBase,
-                                    modifier = Modifier
-                                        .background(Palette.accent, RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(
-                                Icons.Filled.Menu,
-                                contentDescription = "Open navigation",
-                                tint = Palette.textPrimary,
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Palette.surfaceBase,
-                        titleContentColor = Palette.textPrimary,
-                        navigationIconContentColor = Palette.textPrimary,
-                    ),
-                )
-            },
             bottomBar = {
-                // One-thumb navigation for the four everyday screens plus a raised gold centre FAB
-                // for quick actions — mirroring the macOS/iOS tab bar. The drawer stays (same
-                // destinations, grouped) so nothing moved for existing users; the bar is additive.
-                Box(contentAlignment = Alignment.TopCenter) {
-                    NavigationBar(containerColor = Palette.surfaceRaised) {
-                        bottomTabs.forEach { dest ->
-                            NavigationBarItem(
-                                selected = current == dest,
-                                onClick = {
-                                    if (dest.route != currentRoute) nav.navigateTopLevel(dest.route)
-                                },
-                                icon = { Icon(dest.icon, contentDescription = dest.title) },
-                                label = { Text(dest.title, style = NoopType.footnote) },
-                                colors = navBarItemColors(),
-                            )
-                        }
-                        NavigationBarItem(
-                            // Lights up whenever the current screen ISN'T one of the four tabs, so the
-                            // bar never looks like you're nowhere.
-                            selected = bottomTabs.none { it == current },
-                            onClick = { showMoreSheet = true },
-                            icon = { Icon(Icons.Filled.GridView, contentDescription = "More screens") },
-                            label = { Text("More", style = NoopType.footnote) },
-                            colors = navBarItemColors(),
-                        )
-                    }
-                    // Raised gold-gradient centre FAB, lifted ~20dp above the bar (spec: margin-top:-20px).
-                    // Opens a bottom sheet of quick actions routing to existing destinations.
-                    FloatingActionButton(
-                        onClick = { showQuickActions = true },
-                        containerColor = Color.Transparent,
-                        contentColor = Palette.goldDeepText,
-                        shape = CircleShape,
-                        // Flat — no Material drop shadow; the redesign keeps glow low (the gold
-                        // gradient alone reads as raised against the navy bar).
-                        elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = 0.dp,
-                            pressedElevation = 0.dp,
-                            focusedElevation = 0.dp,
-                            hoveredElevation = 0.dp,
-                        ),
-                        modifier = Modifier
-                            .offset(y = (-20).dp)
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(*Palette.goldGradient.toTypedArray())),
-                    ) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = "Quick actions",
-                            tint = Palette.goldDeepText,
-                        )
-                    }
-                }
+                // One unified "glass" bar: four evenly-spaced tabs — Today · Trends · Sleep · More
+                // (matches the iOS FloatingTabBar). The quick-action "+" lives in the Today header's
+                // top-right (balancing the avatar), so the bar is clean tabs only. "More" navigates to
+                // its own page (mirroring the iOS More tab) that reaches every grouped destination, so no
+                // destination is lost without the drawer.
+                GlassBottomBar(
+                    current = current,
+                    onTabSelected = { dest ->
+                        if (dest.route != currentRoute) nav.navigateTopLevel(dest.route)
+                    },
+                )
             },
         ) { inner ->
             NavHost(
@@ -400,6 +244,16 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     TodayScreen(
                         viewModel = viewModel,
                         onSupport = { nav.navigateTopLevel(Destination.Support.route) },
+                        // The quick-action "+" lives in the Today header's top-right now (off the
+                        // bottom bar) — it opens the same quick-action sheet the bar used to.
+                        onQuickActions = { showQuickActions = true },
+                        // The Updates "ringer" — the bell sits between the Support heart and the +,
+                        // and opens the inbox sheet AppRoot presents (it owns the nav for deep-links).
+                        updateStore = updateStore,
+                        onOpenUpdates = { showUpdatesInbox = true },
+                        // The leading profile avatar opens Settings (where the photo is set/changed),
+                        // mirroring iOS's avatar-leading Today header. The drawer hamburger is unchanged.
+                        onOpenSettings = { nav.navigateTopLevel(Destination.Settings.route) },
                     )
                 }
                 composable(Destination.Live.route) {
@@ -432,12 +286,14 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     )
                 }
                 composable(Destination.Trends.route) { TrendsScreen(viewModel) }
-                composable(Destination.Insights.route) { InsightsScreen(viewModel) }
+                composable(Destination.Insights.route) { InsightsScreen(viewModel, onOpenInsightsHub = { nav.navigateTopLevel(Destination.InsightsHub.route) }) }
                 composable(Destination.Compare.route) { CompareScreen(viewModel) }
                 composable(Destination.Health.route) {
                     HealthScreen(
                         vm = viewModel,
                         onVitalClick = { nav.navigate("vital_detail/$it") },
+                        onOpenLabBook = { nav.navigateTopLevel(Destination.LabBook.route) },
+                        onOpenFusedRecord = { nav.navigateTopLevel(Destination.FusedRecord.route) },
                     )
                 }
                 composable(Destination.VitalSigns.route) {
@@ -452,66 +308,25 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                         key = backStackEntry.arguments?.getString("key").orEmpty(),
                     )
                 }
+                // --- v5 pillar screens (Wave 3 wiring) ---
+                composable(Destination.InsightsHub.route) { InsightsHubScreen(viewModel) }
+                composable(Destination.LabBook.route) { LabBookScreen(viewModel) }
+                composable(Destination.Rhythm.route) {
+                    // EXPERIMENTAL: self-gates on its own consent clickwrap (default OFF). The night
+                    // summary + per-window Poincaré results land with the rhythm capture pipeline; until
+                    // then it renders its honest "no clear reading yet" empty state behind the gate.
+                    RhythmScreen(night = null, windows = emptyList())
+                }
+                composable(Destination.FusedRecord.route) { FusedRecordRoute(viewModel) }
                 composable(Destination.AppleHealth.route) { AppleHealthScreen(viewModel) }
                 composable(Destination.Devices.route) { DevicesScreen(viewModel) }
                 composable(Destination.DataSources.route) { DataSourcesScreen(viewModel) }
                 composable(Destination.Notifications.route) { NotificationsSettingsScreen(viewModel) }
                 composable(Destination.Settings.route) { SettingsScreen(viewModel) }
-            }
-        }
-
-        // "More" — every destination, grouped exactly like the drawer, one thumb away. The drawer
-        // itself stays for anyone used to the hamburger; both routes lead to the same screens.
-        if (showMoreSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showMoreSheet = false },
-                containerColor = Palette.surfaceRaised,
-                contentColor = Palette.textPrimary,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 24.dp),
-                ) {
-                    drawerGroups.forEachIndexed { index, group ->
-                        if (index > 0) {
-                            HorizontalDivider(
-                                color = Palette.hairline,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                        }
-                        Overline(
-                            group.header,
-                            modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 6.dp),
-                            color = Palette.textTertiary,
-                        )
-                        group.items.forEach { dest ->
-                            val selected = backStack?.destination?.hierarchy
-                                ?.any { it.route == dest.route } == true
-                            NavigationDrawerItem(
-                                selected = selected,
-                                onClick = {
-                                    showMoreSheet = false
-                                    if (dest.route != currentRoute) {
-                                        nav.navigateTopLevel(dest.route)
-                                    }
-                                },
-                                icon = { Icon(dest.icon, contentDescription = null) },
-                                label = { Text(dest.title, style = NoopType.body) },
-                                colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = Palette.surfaceOverlay, // subtle neutral lift, no gold wash
-                                    unselectedContainerColor = Palette.surfaceRaised,
-                                    selectedIconColor = Palette.accent,
-                                    unselectedIconColor = Palette.textSecondary,
-                                    selectedTextColor = Palette.textPrimary,
-                                    unselectedTextColor = Palette.textSecondary,
-                                ),
-                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                            )
-                        }
-                    }
+                // The "More" page — the iOS More tab's twin: a navigated ScreenScaffold page hosting the
+                // full grouped destination list (was a pull-up sheet). A row navigates top-level.
+                composable(Destination.More.route) {
+                    MoreScreen(onNavigate = { nav.navigateTopLevel(it) })
                 }
             }
         }
@@ -557,6 +372,237 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                 }
             }
         }
+
+        // The Updates inbox (opened by the Today header bell). Presented here so it has the nav for
+        // deep-links — a row's "trends" key switches the bottom tab, mirroring the iOS NavRouter route.
+        if (showUpdatesInbox) {
+            ModalBottomSheet(
+                onDismissRequest = { showUpdatesInbox = false },
+                // Open full-height (no half-pull) so it reads like the iOS Updates sheet, and use the
+                // BEIGE surfaceBase so the white NoopCards POP — surfaceRaised made white cards sit on a
+                // white sheet (no contrast), which is why the Android inbox looked flat vs iOS.
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                containerColor = Palette.surfaceBase,
+                contentColor = Palette.textPrimary,
+            ) {
+                UpdatesInboxScreen(
+                    store = updateStore,
+                    onClose = { showUpdatesInbox = false },
+                    onDeepLink = { key ->
+                        // Map the inbox deep-link key to a route (only known keys route). "trends" is
+                        // the one real poster's target today; unknown keys just close the sheet.
+                        val route = when (key) {
+                            "trends" -> Destination.Trends.route
+                            else -> null
+                        }
+                        if (route != null && route != currentRoute) nav.navigateTopLevel(route)
+                    },
+                    onRestore = { cardId ->
+                        // Flip the shared dismissed flag back off so the card reappears, and signal a
+                        // mounted Today to re-read it immediately (SharedPreferences isn't reactive).
+                        TodayCardDismissal.setDismissed(context, cardId, false)
+                        updateStore.restoreRequest = cardId
+                    },
+                )
+            }
+        }
+    }
+}
+
+// MARK: - More page
+//
+// The "More" tab's destination — a full navigated page (mirroring the iOS More tab's NavigationStack
+// List), replacing the old pull-up ModalBottomSheet. It hosts the SAME grouped destinations
+// ([drawerGroups]) inside a [ScreenScaffold], with the exact section-header + row styling the sheet
+// used (uppercase [Overline] group labels, icon + label [NavigationDrawerItem] rows) — now with a
+// trailing chevron so each row reads as a navigation push, matching the iOS disclosure rows. Tapping a
+// row navigates top-level; there is no sheet to dismiss. The floating bottom bar stays visible because
+// this is just another NavHost destination under the same Scaffold.
+
+/** The full grouped destination list as a navigated page (the iOS More tab's twin). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MoreScreen(onNavigate: (String) -> Unit) {
+    ScreenScaffold(
+        title = "More",
+        subtitle = "Everything else, one tap away",
+    ) {
+        // Mirror the iOS More page: each group is an UPPERCASE overline label over a single grouped
+        // white NoopCard whose rows are tight (accent icon + title + chevron) and separated by inset
+        // hairlines — NOT loose NavigationDrawerItems floating on the bare surface.
+        drawerGroups.forEach { group ->
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Overline(group.header, color = Palette.textTertiary)
+                NoopCard(padding = 0.dp) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        group.items.forEachIndexed { i, dest ->
+                            MoreRow(dest = dest, onClick = { onNavigate(dest.route) })
+                            if (i < group.items.lastIndex) {
+                                HorizontalDivider(
+                                    color = Palette.hairline,
+                                    modifier = Modifier.padding(start = 50.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One tappable destination row in the More page — accent icon + title + trailing chevron in a
+ *  comfortable tap target, mirroring the iOS MoreRow. */
+@Composable
+private fun MoreRow(dest: Destination, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(dest.icon, contentDescription = null, tint = Palette.accent, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(dest.title, style = NoopType.body, color = Palette.textPrimary, modifier = Modifier.weight(1f))
+        Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = Palette.textTertiary,
+            modifier = Modifier.size(Metrics.iconSmall),
+        )
+    }
+}
+
+// MARK: - Glass bottom bar
+//
+// The signature bar, ported from iOS's FloatingTabBar: ONE rounded "glass" island holding four
+// evenly-spaced inline slots — Today · Trends · Sleep · More. The quick-action "+" now lives in the
+// Today header's top-right (it left the bar to balance the avatar), so the bar is clean tabs only.
+// The "glass" feel is a translucent raised surface with a low elevation and a subtle hairline border
+// — frosted, not a hard opaque slab and not a glow. Each nav slot is an icon over a small label;
+// active = gold accent, inactive = textSecondary. All routing is unchanged: the four tabs switch the
+// same destinations.
+
+/** A single bottom-bar nav slot: the destination it switches to, plus the bar-specific icon/label. */
+private data class BarTab(val dest: Destination, val icon: ImageVector, val label: String)
+
+/** The nav slots in iOS order: Today · Trends · Sleep · More.
+ *  More is special-cased (it opens the sheet rather than a route), so it is appended at the call site. */
+private val barLeadingTabs = listOf(
+    BarTab(Destination.Today, Icons.Outlined.GridView, "Today"),
+    // chart.line.uptrend.xyaxis on iOS — the rising-trend glyph, not a flat bar chart.
+    BarTab(Destination.Trends, Icons.AutoMirrored.Filled.TrendingUp, "Trends"),
+)
+private val barTrailingTabs = listOf(
+    BarTab(Destination.Sleep, Icons.Filled.Bedtime, "Sleep"),
+)
+
+@Composable
+private fun GlassBottomBar(
+    current: Destination,
+    onTabSelected: (Destination) -> Unit,
+) {
+    val barShape = RoundedCornerShape(50)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            // Clear the gesture-nav bar (home indicator) first, then add breathing room so the capsule
+            // floats free of the bottom edge rather than jamming against it — iOS clears the home-indicator
+            // safe area + 4pt; here navigationBarsPadding + 12dp gives the same lift.
+            .navigationBarsPadding()
+            .padding(horizontal = 22.dp)
+            .padding(top = 4.dp, bottom = Metrics.space12),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = barShape,
+            // "Glass": a translucent raised surface — a frosted island, not a hard slab. Compose has no
+            // cheap blur, so translucency (≈0.80) + a hairline rim is the Liquid-Glass stand-in. A soft,
+            // low drop shadow reads as floating without a glow.
+            color = Palette.surfaceRaised.copy(alpha = 0.80f),
+            tonalElevation = 2.dp,
+            shadowElevation = 4.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                // Cap the width so the pill stays a centred floating island on tablets, not a full-bleed bar.
+                .widthIn(max = 480.dp)
+                .border(0.5.dp, Palette.hairline.copy(alpha = 0.6f), barShape),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                barLeadingTabs.forEach { tab ->
+                    BarSlot(
+                        icon = tab.icon,
+                        label = tab.label,
+                        active = current == tab.dest,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onTabSelected(tab.dest) },
+                    )
+                }
+                barTrailingTabs.forEach { tab ->
+                    BarSlot(
+                        icon = tab.icon,
+                        label = tab.label,
+                        active = current == tab.dest,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onTabSelected(tab.dest) },
+                    )
+                }
+                BarSlot(
+                    icon = Icons.Filled.MoreHoriz,
+                    label = "More",
+                    // Selected on the More page itself, and also kept lit whenever the current screen is
+                    // one reached THROUGH More (i.e. not one of the bar's own three tabs) — so drilling
+                    // into any grouped destination still reads as "you're in More", never "nowhere".
+                    active = current != Destination.Today && current != Destination.Trends &&
+                        current != Destination.Sleep,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onTabSelected(Destination.More) },
+                )
+            }
+        }
+    }
+}
+
+/** One nav slot: an icon over a small label. Active = gold accent (semibold), inactive = textSecondary.
+ *  No selection pill, no glow — just the colour swap, matching the iOS bar. */
+@Composable
+private fun BarSlot(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val tint = if (active) Palette.accent else Palette.textSecondary
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(vertical = 3.dp)
+            .semantics { contentDescription = label },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(Metrics.iconSmall))
+        Text(
+            label,
+            style = NoopType.footnote.copy(
+                fontSize = 10.sp,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+            ),
+            color = tint,
+        )
     }
 }
 
@@ -570,17 +616,6 @@ private val quickActions: List<QuickAction> = listOf(
     QuickAction("Start workout", Icons.Filled.FitnessCenter, Destination.Workouts.route),
     QuickAction("Log journal", Icons.Filled.Edit, Destination.Insights.route),
     QuickAction("Breathe", Icons.Filled.Air, Destination.Breathe.route),
-)
-
-/** Bottom-bar item colours, matching the drawer's accent-on-raised selection treatment. */
-@Composable
-private fun navBarItemColors() = NavigationBarItemDefaults.colors(
-    selectedIconColor = Palette.accent,
-    selectedTextColor = Palette.textPrimary,
-    indicatorColor = Color.Transparent, // no gold pill behind the selected tab — just the gold icon
-
-    unselectedIconColor = Palette.textSecondary,
-    unselectedTextColor = Palette.textSecondary,
 )
 
 // MARK: - Navigation motion (README §Motion)
@@ -642,6 +677,22 @@ private fun NavHostController.navigateTopLevel(route: String) {
         launchSingleTop = true
         restoreState = true
     }
+}
+
+/**
+ * Loader for the v5 "Your Data, Fused" screen: assembles today's [FusedRecord] off the repository via
+ * [AppViewModel.fusedRecordForToday] (the pure FusionResolver per metric) and hands the pure
+ * [FusedRecordScreen] its read-model. Keeps the screen itself I/O-free + previewable. Re-loads on entry.
+ */
+@Composable
+private fun FusedRecordRoute(viewModel: AppViewModel) {
+    var record by remember {
+        mutableStateOf(FusedRecord(rows = emptyList(), dayOwner = null as FusionSource?, contributingSourceCount = 0))
+    }
+    LaunchedEffect(Unit) {
+        record = runCatching { viewModel.fusedRecordForToday() }.getOrDefault(record)
+    }
+    FusedRecordScreen(record = record)
 }
 
 /**

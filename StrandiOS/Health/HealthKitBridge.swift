@@ -81,7 +81,10 @@ final class HealthKitBridge: ObservableObject {
     private static let quantityReadIds: [HKQuantityTypeIdentifier] = [
         .heartRate, .restingHeartRate, .heartRateVariabilitySDNN, .oxygenSaturation,
         .respiratoryRate, .bodyTemperature, .stepCount, .activeEnergyBurned,
-        .basalEnergyBurned, .vo2Max
+        .basalEnergyBurned, .vo2Max,
+        // Body composition — READ-ONLY (#20). Imported under the apple-health source like the file
+        // importer already ingests; deliberately NOT in quantityWriteIds (we never write these back).
+        .bodyMass, .bodyFatPercentage, .leanBodyMass, .bodyMassIndex
     ]
     private static let quantityWriteIds: [HKQuantityTypeIdentifier] = [
         .restingHeartRate, .heartRateVariabilitySDNN, .oxygenSaturation, .respiratoryRate
@@ -181,6 +184,22 @@ final class HealthKitBridge: ObservableObject {
             var a = agg(day); a.vo2max = v; byDay[day] = a
         }
 
+        // Body composition — READ-ONLY import under the apple-health source (#20). Weight, lean mass
+        // and BMI are point-in-time readings, so take the latest-of-day; body-fat reads fine as a
+        // daily average. Body-fat HealthKit gives a 0…1 fraction, scaled to percent like spo2 above.
+        await collect(.bodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .discreteMostRecent) { day, v in
+            var a = agg(day); a.weightKg = v; byDay[day] = a
+        }
+        await collect(.bodyFatPercentage, unit: .percent(), start: start, end: end, op: .discreteAverage) { day, v in
+            var a = agg(day); a.bodyFatPct = v * 100; byDay[day] = a   // 0…1 → percent
+        }
+        await collect(.leanBodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .discreteMostRecent) { day, v in
+            var a = agg(day); a.leanMassKg = v; byDay[day] = a
+        }
+        await collect(.bodyMassIndex, unit: .count(), start: start, end: end, op: .discreteMostRecent) { day, v in
+            var a = agg(day); a.bmi = v; byDay[day] = a
+        }
+
         // Sleep minutes per day (asleep stages summed; attributed to wake day).
         await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
             var a = agg(day)
@@ -193,7 +212,7 @@ final class HealthKitBridge: ObservableObject {
             AppleDaily(day: day, steps: a.steps.map { Int($0) },
                        activeKcal: a.activeKcal, basalKcal: a.basalKcal, vo2max: a.vo2max,
                        avgHr: a.avgHr.map { Int($0.rounded()) }, maxHr: a.maxHr.map { Int($0.rounded()) },
-                       walkingHr: nil, weightKg: nil)
+                       walkingHr: nil, weightKg: a.weightKg)
         }
         let dmRows = byDay.map { (day, a) in
             DailyMetric(day: day, totalSleepMin: a.asleepMin, efficiency: nil,
@@ -206,8 +225,9 @@ final class HealthKitBridge: ObservableObject {
         // sparklines, and the Metric Explorer read from — repo.series(key:source:"apple-health")
         // queries ONLY metricSeries, so without this every tile/chart renders "—" after a successful
         // sync. Reuse the importer's canonical key mapping so the keys match the macOS path exactly.
-        // iOS doesn't collect weight/body-comp or awake/in-bed minutes, so those stay nil and emit no
-        // points — correct.
+        // Body composition (weight/body_fat/lean_mass/bmi) now reads live on iOS (#20) and flows
+        // through the same metricPoints keys as the file importer. iOS still doesn't collect
+        // awake/in-bed minutes, so those stay nil and emit no points — correct.
         let aggregates = byDay.map { (day, a) in
             AppleDailyAggregate(
                 day: day,
@@ -221,6 +241,10 @@ final class HealthKitBridge: ObservableObject {
                 activeKcal: a.activeKcal,
                 basalKcal: a.basalKcal,
                 vo2max: a.vo2max,
+                weightKg: a.weightKg,
+                bodyFatPct: a.bodyFatPct,
+                leanMassKg: a.leanMassKg,
+                bmi: a.bmi,
                 asleepMin: a.asleepMin,
                 deepMin: a.deepMin,
                 remMin: a.remMin,
@@ -328,6 +352,7 @@ final class HealthKitBridge: ObservableObject {
         var restingHr: Double?; var avgHr: Double?; var maxHr: Double?; var hrv: Double?
         var spo2: Double?; var respRate: Double?; var steps: Double?
         var activeKcal: Double?; var basalKcal: Double?; var vo2max: Double?
+        var weightKg: Double?; var bodyFatPct: Double?; var leanMassKg: Double?; var bmi: Double?
         var asleepMin: Double?; var deepMin: Double?; var remMin: Double?; var coreMin: Double?
     }
 
@@ -356,10 +381,11 @@ final class HealthKitBridge: ObservableObject {
                 results?.enumerateStatistics(from: start, to: end) { stats, _ in
                     let q: HKQuantity?
                     switch op {
-                    case .cumulativeSum:    q = stats.sumQuantity()
-                    case .discreteAverage:  q = stats.averageQuantity()
-                    case .discreteMax:      q = stats.maximumQuantity()
-                    default:                q = stats.averageQuantity()
+                    case .cumulativeSum:     q = stats.sumQuantity()
+                    case .discreteAverage:   q = stats.averageQuantity()
+                    case .discreteMax:       q = stats.maximumQuantity()
+                    case .discreteMostRecent: q = stats.mostRecentQuantity()
+                    default:                 q = stats.averageQuantity()
                     }
                     if let q { sink(HealthKitBridge.dayString(stats.startDate), q.doubleValue(for: unit)) }
                 }

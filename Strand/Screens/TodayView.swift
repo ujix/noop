@@ -26,6 +26,9 @@ struct TodayView: View {
     @EnvironmentObject var repo: Repository
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var profile: ProfileStore
+    @EnvironmentObject var router: NavRouter
+    /// The "update ringer" — the bell in the top bar opens this inbox; dismissed Today cards post into it.
+    @EnvironmentObject var updateStore: UpdateStore
 
     // Imperial/Metric display preference (D#103). Only the Weight tile carries a convertible unit here.
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
@@ -44,6 +47,9 @@ struct TodayView: View {
     @State private var sparks: [String: [Double]] = [:]
     @State private var workouts: [WorkoutRow] = []
     @State private var appleDays: [AppleDaily] = []
+    /// Distinct days + sleep sessions imported from a Mi Band (Mi Fitness), for the Data Sources row.
+    @State private var xiaomiDays = 0
+    @State private var xiaomiSleeps = 0
 
     // The Rest SCORE (0–100) for the logical day — IntelligenceEngine's Rest composite, written to the
     // `sleep_performance` metric series (imported export wins, computed strap fills). The Key-Metrics
@@ -81,6 +87,22 @@ struct TodayView: View {
     // trend and Rest score) resolves to the selected day instead of always showing today. Mirrors the
     // Android TodayScreen.selectedDayOffset. Loads re-run when this changes (see .task(id:)).
     @State private var selectedDayOffset = 0
+    // iOS top-bar state: the date-jump popover and the profile/settings sheet.
+    @State private var showDayPicker = false
+    @State private var showSettings = false
+    /// The Updates inbox sheet (opened by the header bell). Shared across both platforms.
+    @State private var showUpdatesInbox = false
+
+    /// The day-count seen on the previous load, so a refresh that brings in NEW days can post a single
+    /// honest `.reading` update ("New data — N days added") to the inbox. nil until the first load
+    /// establishes a baseline (so the very first load never posts — we only announce genuine growth).
+    @State private var lastSeenDayCount: Int?
+
+    // Per-card "dismissed into the inbox" flags for the two Today info-cards. A small × on each card
+    // sets these (and posts a `.dismissedCard` update); "Restore to Today" in the inbox flips them back
+    // (via the shared `TodayCardDismissal.flagKey`). @AppStorage matches the file's existing prefs style.
+    @AppStorage(TodayCardDismissal.flagKey("scoresBuilding")) private var scoresBuildingDismissed = false
+    @AppStorage(TodayCardDismissal.flagKey("newHere")) private var newHereDismissed = false
 
     // Memoized repo-derived values that are expensive (a full-history sort + per-call
     // `repo.days.map`) yet INDEPENDENT of the ~1 Hz live-HR ticks that re-evaluate `body`
@@ -224,28 +246,211 @@ struct TodayView: View {
         #endif
     }
 
+    /// The big scaffold title — suppressed on iOS, where `todayTopBar` replaces it; macOS keeps its
+    /// "Control Center" header.
+    private var scaffoldTitle: LocalizedStringKey? {
+        #if os(iOS)
+        nil
+        #else
+        screenTitle
+        #endif
+    }
+
+    #if os(iOS)
+    /// The day-nav label: relative for today/yesterday, else a short date.
+    private var dayNavLabel: String {
+        switch selectedDayOffset {
+        case 0:  return "Today"
+        case 1:  return "Yesterday"
+        default:
+            let d = Calendar.current.date(byAdding: .day, value: -selectedDayOffset, to: Date()) ?? Date()
+            return Self.navDayFmt.string(from: d)
+        }
+    }
+
+    private static let navDayFmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "EEE d MMM"; f.locale = Locale(identifier: "en_US_POSIX"); return f
+    }()
+
+    /// Picker binding that converts a chosen date back to a whole-day offset (capped at today).
+    private var dayPickerBinding: Binding<Date> {
+        Binding(
+            get: { Calendar.current.date(byAdding: .day, value: -selectedDayOffset, to: Date()) ?? Date() },
+            set: { newValue in
+                let cal = Calendar.current
+                let days = cal.dateComponents([.day], from: cal.startOfDay(for: newValue),
+                                              to: cal.startOfDay(for: Date())).day ?? 0
+                selectedDayOffset = max(0, days)
+                showDayPicker = false
+            }
+        )
+    }
+
+    /// Compact WHOOP-style top bar: a profile/settings button (left), the centred ‹ Today › day-nav
+    /// (bold, tappable to jump to a date), and the strap-battery badge (right).
+    @ViewBuilder private var todayTopBar: some View {
+        ZStack {
+            // Centre — the day navigator.
+            HStack(spacing: 8) {
+                topNavChevron("chevron.left", enabled: true) { selectedDayOffset += 1 }
+                Button { showDayPicker = true } label: {
+                    Text(dayNavLabel)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .tracking(0.4)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .lineLimit(1)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(dayNavLabel). Pick a date")
+                .popover(isPresented: $showDayPicker) {
+                    DatePicker("", selection: dayPickerBinding, in: ...Date(), displayedComponents: [.date])
+                        .datePickerStyle(.graphical).labelsHidden().padding(12)
+                }
+                topNavChevron("chevron.right", enabled: selectedDayOffset > 0) {
+                    if selectedDayOffset > 0 { selectedDayOffset -= 1 }
+                }
+            }
+            // Sides — profile/settings (leading) + strap battery (trailing).
+            HStack {
+                Button { showSettings = true } label: {
+                    // Shows the user's chosen profile photo (Circle-cropped) if set, else the
+                    // default person.crop.circle icon. Still opens Settings on tap.
+                    ProfileAvatarView(imageData: profile.avatarImageData, size: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Profile and settings")
+                Spacer()
+                StrapBatteryBadge(pct: live.batteryPct)
+                // Updates "ringer" — between the battery badge and the +. Bell with a gold unread badge.
+                updateBell.padding(.leading, 6)
+                // Quick-action "+" — moved here from the tab bar to balance the avatar on the left and
+                // free the bottom bar to four clean tabs. Routes to the shell's quick-action sheet.
+                Button { router.requestQuickActions() } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(StrandPalette.goldDeepText)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(LinearGradient(gradient: StrandPalette.goldGradient,
+                                                                 startPoint: .topLeading, endPoint: .bottomTrailing)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 8)
+                .accessibilityLabel("Quick actions")
+                .accessibilityHint("Start a workout, log your journal, or breathe")
+            }
+        }
+        .frame(height: 36)
+    }
+
+    private func topNavChevron(_ name: String, enabled: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(enabled ? StrandPalette.accent : StrandPalette.textTertiary)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    /// Settings presented as a sheet from the top-bar profile button (sheets inherit the app
+    /// environment on iOS, so SettingsView gets the same objects it has under the More tab).
+    private var settingsSheet: some View {
+        NavigationStack {
+            SettingsView()
+                .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showSettings = false }.foregroundStyle(StrandPalette.accent)
+                    }
+                }
+        }
+    }
+    #endif
+
+    /// The Updates "ringer": a bell button (~30pt) with a small gold unread-count badge. Tapping opens
+    /// the Updates inbox sheet. Shared by the iOS top bar and the macOS toolbar.
+    private var updateBell: some View {
+        Button { showUpdatesInbox = true } label: {
+            Image(systemName: updateStore.unreadCount > 0 ? "bell.badge" : "bell")
+                .font(.system(size: 18))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(width: 30, height: 30)
+                .overlay(alignment: .topTrailing) {
+                    if updateStore.unreadCount > 0 {
+                        Text("\(min(updateStore.unreadCount, 99))")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(StrandPalette.goldDeepText)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .frame(minWidth: 15)
+                            .background(Capsule().fill(StrandPalette.gold))
+                            .offset(x: 6, y: -4)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(updateStore.unreadCount > 0
+                            ? "Updates, \(updateStore.unreadCount) unread"
+                            : "Updates")
+    }
+
     var body: some View {
-        ScreenScaffold(title: screenTitle, subtitle: "\(dateLine)",
-                       onRefresh: { await repo.refresh() }) {
+        ScreenScaffold(title: scaffoldTitle, onRefresh: { await repo.refresh() }) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                #if os(iOS)
+                // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
+                // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).
+                todayTopBar
+                HealthAlertBanner()
+                #else
                 HealthAlertBanner()
                 // Browse past days — chevrons + a date jump capped at today (no future days).
                 DayNavBar(selectedOffset: selectedDayOffset) { selectedDayOffset = $0 }
+                #endif
                 // The "still building" and "new here?" prompts are about getting today's scores going,
                 // so they stay anchored to today rather than reappearing on every navigated past day.
                 if selectedDayOffset == 0 && repo.today?.recovery == nil {
                     // While the strap is mid-offload, say so — empty tiles read as final otherwise (#77).
                     if live.backfilling { SyncingHistoryNote(chunks: live.syncChunksThisSession) }
-                    DataPendingNote(
-                        title: "Live now. Your scores are building.",
-                        message: "Your live heart rate is working from the strap, and charge, effort and rest build from it over your next few nights of wear, sharpening as it learns your baseline. Want your full history instantly? Import your WHOOP export in Data Sources and it backfills in about a minute."
-                    )
+                    if !scoresBuildingDismissed {
+                        DataPendingNote(
+                            title: "Live now. Your scores are building.",
+                            message: "Your live heart rate is working from the strap, and charge, effort and rest build from it over your next few nights of wear, sharpening as it learns your baseline. Want your full history instantly? Import your WHOOP export in Data Sources and it backfills in about a minute."
+                        )
+                        // A small × dismisses the card INTO the Updates inbox (restorable from there).
+                        .overlay(alignment: .topTrailing) {
+                            todayCardDismissButton {
+                                dismissTodayCard(
+                                    id: "scoresBuilding",
+                                    title: "Live now. Your scores are building.",
+                                    message: "Charge, Effort and Rest build over your next few nights of wear."
+                                )
+                            }
+                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    }
                 }
                 // One-time pointer to the scoring guide, shown once scores exist.
-                if selectedDayOffset == 0 && repo.today?.recovery != nil && !scoringGuideCardSeen {
+                if selectedDayOffset == 0 && repo.today?.recovery != nil && !scoringGuideCardSeen && !newHereDismissed {
                     scoringGuideFirstRunCard
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 }
+                #if os(iOS)
+                // Pull the rings up under the compact top bar — the full section gap left too much air
+                // above them now the big "Today's Synthesis" header is gone.
+                heroSection.padding(.top, -16)
+                #else
                 heroSection
+                #endif
                 heartRateTrendSection
                 readinessSection
                 metricsSection
@@ -285,7 +490,8 @@ struct TodayView: View {
         // this path is unavailable (no nav bar on a primary tab) and the 560pt panel would overflow
         // iPhone, so the in-content `supportRow` + auto-sized `.sheet` below take over instead.
         .toolbar {
-            ToolbarItem {
+            // Support heart on the LEADING (left) edge of the window toolbar.
+            ToolbarItem(placement: .navigation) {
                 Button { showingSupport = true } label: {
                     Image(systemName: "heart.fill")
                         .foregroundStyle(StrandPalette.metricRose)
@@ -293,6 +499,11 @@ struct TodayView: View {
                 }
                 .help("Support NOOP — donate or get in touch")
                 .accessibilityLabel("Support NOOP — donate or get in touch")
+            }
+            // The Updates "ringer" on the TRAILING (top-right) edge, separated from the heart (iOS hosts
+            // it in the compact top bar instead).
+            ToolbarItem(placement: .primaryAction) {
+                updateBell.help("Updates")
             }
         }
         .overlay {
@@ -304,6 +515,8 @@ struct TodayView: View {
         #else
         // iOS: present Support as an auto-sized sheet (sizes to the device, unlike the 560pt overlay).
         .sheet(isPresented: $showingSupport) { SupportView() }
+        // Profile/settings from the top-bar button.
+        .sheet(isPresented: $showSettings) { settingsSheet }
         #endif
         // The scoring guide, opened at a specific score from its ⓘ.
         .sheet(item: $guideSection) { section in
@@ -313,6 +526,59 @@ struct TodayView: View {
         .sheet(isPresented: $showGuideTop) {
             ScoringGuideView(onClose: { showGuideTop = false })
         }
+        // The Updates inbox (the header bell). Both platforms.
+        .sheet(isPresented: $showUpdatesInbox) {
+            UpdatesInboxView(onClose: { showUpdatesInbox = false })
+        }
+        // Honour a "Restore to Today" tap from the inbox: flip the matching dismissed flag back so the
+        // card reappears (the inbox also clears the @AppStorage key directly, but this covers an
+        // already-mounted Today). Cleared once handled.
+        .onChangeCompat(of: updateStore.restoreRequest) { payload in
+            guard let payload else { return }
+            withAnimation(StrandMotion.interactive) { restoreTodayCard(payload) }
+            updateStore.restoreRequest = nil
+        }
+    }
+
+    /// Flip a Today info-card's dismissed flag back to false so it reappears (driven by the inbox's
+    /// "Restore to Today"). Keyed on the card id stored in the update's `restorePayload`.
+    private func restoreTodayCard(_ cardID: String) {
+        switch cardID {
+        case "scoresBuilding": scoresBuildingDismissed = false
+        case "newHere":        newHereDismissed = false
+        default:               break
+        }
+    }
+
+    /// Dismiss a Today info-card INTO the inbox: set its @AppStorage flag (so it stays gone) and post a
+    /// `.dismissedCard` update carrying the card id so it can be restored.
+    private func dismissTodayCard(id: String, title: String, message: String) {
+        StrandHaptic.selection.play()
+        switch id {
+        case "scoresBuilding": scoresBuildingDismissed = true
+        case "newHere":        newHereDismissed = true
+        default:               break
+        }
+        updateStore.post(UpdateItem(
+            kind: .dismissedCard,
+            title: title,
+            message: message,
+            restorePayload: id
+        ))
+    }
+
+    /// A small top-trailing × for a Today info-card that has no built-in dismiss control (the shared
+    /// `DataPendingNote`). Matches the "New here?" card's × styling.
+    private func todayCardDismissButton(_ action: @escaping () -> Void) -> some View {
+        Button { withAnimation(StrandMotion.interactive) { action() } } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .padding(8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Dismiss to Updates")
     }
 
     // MARK: First-run scoring-guide card (one-time, dismissible)
@@ -348,7 +614,14 @@ struct TodayView: View {
                 }
                 Spacer(minLength: 0)
                 Button {
-                    scoringGuideCardSeen = true
+                    // Dismiss INTO the Updates inbox (restorable), rather than permanently hiding.
+                    withAnimation(StrandMotion.interactive) {
+                        dismissTodayCard(
+                            id: "newHere",
+                            title: "New here?",
+                            message: "How Charge, Effort and Rest are calculated — and how they differ from WHOOP."
+                        )
+                    }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .semibold))
@@ -537,21 +810,29 @@ struct TodayView: View {
         let d = displayDay
         let score = d?.recovery
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            // Screen-4 header: the day's Synthesis title + a SOLID/CALIBRATING data-confidence
-            // pill (SOLID gold once a recovery score exists, CALIBRATING slate while the baseline
-            // forms). The greeting moves to the SectionHeader's trailing slot.
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                SectionHeader(synthesisTitle, overline: "At a glance",
-                              trailing: greetingWord)
-                recoveryStatePill(score: score)
-            }
-
-            // The three daily scores as layered ring gauges, side by side, each in its own
-            // colour world, floated over a scenic Charge-tinted backdrop. The Charge ring is the
-            // big gold hero recovery ring (carrying the micro "NOOP" wordmark + number + state
-            // label via RecoveryRing). The grid reflows to a single column on a narrow (iPhone)
-            // width so the rings never crush.
+            // The WHOOP-style three-ring hero leads the screen directly — the "AT A GLANCE / Today's
+            // Synthesis" header was redundant with the rings, so it's gone. Charge centred + enlarged,
+            // flanked by smaller Rest and Effort rings over the scenic backdrop.
             scoreHeroRow(d: d, score: score)
+
+            // The plain-English read-out — the gold Synthesis card — carries the greeting + the
+            // SOLID/CALIBRATING data-confidence pill in its top-right (moved off the removed header).
+            InsightCard(
+                category: "Synthesis",
+                status: calibrationStatus ?? "\(hrvInsightStatus(d, score: score))",
+                detail: calibrationDetail ?? "\(hrvInsightDetail(d, score: score))",
+                statusColor: score.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textTertiary,
+                tint: StrandPalette.chargeColor
+            )
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: 8) {
+                    Text(greetingWord)
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    recoveryStatePill(score: score)
+                }
+                .padding(18)
+            }
 
             // Honest "why is Effort 0?" caption (#482/#480) — only when today's Effort is a real
             // near-zero, so a calm day reads as explained rather than broken.
@@ -569,20 +850,8 @@ struct TodayView: View {
                 .accessibilityElement(children: .combine)
             }
 
-            // Screen-4 metric card: HRV / Resting HR / Respiratory as labelled metric rows, the
-            // vitals that drive recovery, in one frosted gold-tinted card under the hero ring.
+            // HRV / Resting HR / Respiratory — the vitals that drive recovery, below the guidance.
             recoveryVitalsCard(d)
-
-            // The plain-English read-out — a gold-tinted Synthesis coaching card. When the HRV
-            // baseline is established it leads with the screen-4 "HRV X% over baseline — you're
-            // primed…" read; otherwise it falls back to the calibrating / recovery-state synthesis.
-            InsightCard(
-                category: "Synthesis",
-                status: calibrationStatus ?? "\(hrvInsightStatus(d, score: score))",
-                detail: calibrationDetail ?? "\(hrvInsightDetail(d, score: score))",
-                statusColor: score.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textTertiary,
-                tint: StrandPalette.chargeColor
-            )
         }
     }
 
@@ -697,86 +966,102 @@ struct TodayView: View {
         return Int(((today - baseline) / baseline * 100).rounded())
     }
 
-    /// The three score rings (Charge / Effort / Rest) over a scenic hero background.
+    /// The three score rings over a scenic hero background — WHOOP-style, with the Charge (recovery)
+    /// ring centred and enlarged as the hero and smaller Rest / Effort rings flanking it. Each ring
+    /// floats cleanly on the scenic field (no per-ring card); a tappable label + chevron sits beneath
+    /// each and opens that score's section in the scoring guide. Rings are sized off the available
+    /// width so the trio never crushes on a narrow phone nor bloats on iPad.
     @ViewBuilder
     private func scoreHeroRow(d: DailyMetric?, score: Double?) -> some View {
-        // Three EQUAL columns so Charge / Effort / Rest read as one WHOOP-style row of rings — not
-        // the old adaptive grid that fit only two per phone width and orphaned Rest beside an empty
-        // cell. Rings shrink to 96 (from the solo-hero 132) and drop the micro wordmark so the number
-        // stays legible three-up.
-        let cols = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
-        ZStack {
-            ScenicHeroBackground(domain: .charge)
-                .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-            LazyVGrid(columns: cols, spacing: NoopMetrics.gap) {
-                // CHARGE — recovery 0–100. Honest empty / calibrating overlay when nil.
-                heroScoreCell(domain: .charge, section: .charge) { dia in
-                    ZStack {
-                        RecoveryRing(
-                            score: score ?? 0, diameter: dia,
-                            lineWidth: dia * 10 / 96,
-                            showsLabel: score != nil, showsWordmark: false, showsHover: score != nil
-                        )
-                        if score == nil { ringEmptyOverlay(d: d) }
-                    }
-                }
-                // EFFORT — strain on the gauge, honouring the 0–100 / WHOOP-0–21 toggle (#313).
-                heroScoreCell(domain: .effort, section: .effort) { dia in
-                    ZStack {
-                        StrainGauge(
-                            strain: effortGaugeValue(d) ?? 0,
-                            outOf: effortGaugeMax, diameter: dia,
-                            lineWidth: dia * 10 / 96,
-                            showsLabel: effortStrain(d) != nil, showsHover: effortStrain(d) != nil,
-                            valueFormat: { _ in UnitFormatter.effortDisplay(effortStrain(d) ?? 0, scale: effortScale) }
-                        )
-                        if effortStrain(d) == nil { ringNoData() }
-                    }
-                }
-                // REST — sleep composite 0–100, reusing the recovery ring's scale.
-                heroScoreCell(domain: .rest, section: .rest) { dia in
-                    ZStack {
-                        RecoveryRing(
-                            score: restScore ?? 0, diameter: dia,
-                            lineWidth: dia * 10 / 96,
-                            showsLabel: restScore != nil, showsWordmark: false, showsHover: restScore != nil,
-                            valueFormat: { "Rest \(Int($0.rounded()))" }
-                        )
-                        if restScore == nil { ringNoData() }
-                    }
-                }
+        GeometryReader { geo in
+            // Centre (hero) ring sized off width; the flanking rings are ~66% of it. Grouped tightly and
+            // centred so the trio reads as one cluster, bottom-aligned so all three share a baseline and
+            // the larger Charge ring rises above its neighbours. The rings float on the page (no boxed
+            // card) like WHOOP.
+            let center = min(150, max(110, (geo.size.width - 12) / 2.3))
+            let side = (center * 0.66).rounded()
+            HStack(alignment: .bottom, spacing: 18) {
+                heroRingColumn(section: .rest, domain: .rest) { restRing(diameter: side) }
+                heroRingColumn(section: .charge, domain: .charge) { chargeRing(score: score, d: d, diameter: center) }
+                heroRingColumn(section: .effort, domain: .effort) { effortRing(d: d, diameter: side) }
             }
-            .padding(NoopMetrics.gap)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+        }
+        .frame(height: 214)
+    }
+
+    /// One hero ring column: the ring centred, with a tappable UPPERCASE domain label + chevron
+    /// beneath it (the WHOOP affordance) that opens the matching scoring-guide section. The ring is
+    /// intrinsically diameter×diameter, so the column just centres it and stretches to an equal share
+    /// of the row width.
+    @ViewBuilder
+    private func heroRingColumn<RingBody: View>(
+        section: ScoreSection, domain: DomainTheme, @ViewBuilder ring: () -> RingBody
+    ) -> some View {
+        VStack(spacing: 10) {
+            ring()
+            Button { guideSection = section } label: {
+                HStack(spacing: 3) {
+                    Text(domain.rawValue.uppercased())
+                        .font(StrandFont.overline)
+                        .tracking(StrandFont.overlineTracking)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .opacity(0.6)
+                }
+                .foregroundStyle(StrandPalette.textSecondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("How \(domain.rawValue.capitalized) is calculated")
         }
     }
 
-    /// One score-ring cell: a frosted tinted card carrying the ring + a domain label + the ⓘ.
-    /// The ring is sized to the cell's ACTUAL width (capped at 96, with a small inset) rather than a
-    /// hard 96pt — three rings share a phone width, so a fixed 96 overflowed the ~73–94pt cells (worse
-    /// on small phones / Display Zoom), pressing the arcs against the card edges. The closure receives
-    /// the resolved diameter so the gauge + its line width scale together. Thanks @claypilat (#403).
+    /// Charge (recovery 0–100) hero ring — the premium animated GlowRing, with a calibrating / no-data
+    /// track when nil.
     @ViewBuilder
-    private func heroScoreCell<RingBody: View>(domain: DomainTheme, section: ScoreSection,
-                                               @ViewBuilder ring: @escaping (CGFloat) -> RingBody) -> some View {
-        NoopCard(padding: 12, tint: domain.color) {
-            VStack(spacing: 8) {
-                Text(domain.rawValue.capitalized)
-                    .font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .textCase(.uppercase)
-                    .foregroundStyle(domain.color)
-                GeometryReader { geo in
-                    // Size the ring to the cell; the ring is intrinsically dia×dia, so just CENTER it —
-                    // don't clamp the ZStack to dia (that would wrap the calibrating / no-data overlay
-                    // text, which is wider than the ring).
-                    let dia = min(96, max(52, geo.size.width - 8))
-                    ring(dia).frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .frame(height: 96)   // reserve the max ring box so card heights stay uniform
-            }
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .topTrailing) { scoreInfoButton(section) }
+    private func chargeRing(score: Double?, d: DailyMetric?, diameter: CGFloat) -> some View {
+        if let s = score {
+            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
+                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.085)
+        } else {
+            emptyHeroRing(diameter: diameter) { ringEmptyOverlay(d: d) }
         }
+    }
+
+    /// Effort (strain) hero ring, honouring the 0–100 / WHOOP-0–21 toggle (#313). Integer on the 0–100
+    /// axis so it matches Charge/Rest; one decimal on the WHOOP 0–21 axis where the tenth matters.
+    @ViewBuilder
+    private func effortRing(d: DailyMetric?, diameter: CGFloat) -> some View {
+        if effortStrain(d) != nil, let gv = effortGaugeValue(d) {
+            GlowRing(fraction: gv / effortGaugeMax, value: gv,
+                     format: { effortScale == .whoop ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" },
+                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: diameter * 0.085)
+        } else {
+            emptyHeroRing(diameter: diameter) { ringNoData() }
+        }
+    }
+
+    /// Rest (sleep composite 0–100) hero ring.
+    @ViewBuilder
+    private func restRing(diameter: CGFloat) -> some View {
+        if let s = restScore {
+            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
+                     color: StrandPalette.restColor, diameter: diameter, lineWidth: diameter * 0.085)
+        } else {
+            emptyHeroRing(diameter: diameter) { ringNoData() }
+        }
+    }
+
+    /// The faint full-circle track with a centred overlay, shown when a score is still calibrating/absent.
+    @ViewBuilder
+    private func emptyHeroRing<Overlay: View>(diameter: CGFloat, @ViewBuilder overlay: () -> Overlay) -> some View {
+        ZStack {
+            Circle().stroke(StrandPalette.textPrimary.opacity(0.10),
+                            style: StrokeStyle(lineWidth: diameter * 0.085, lineCap: .round))
+            overlay()
+        }
+        .frame(width: diameter, height: diameter)
     }
 
     /// The effective Effort strain (NOOP 0–100 axis) the gauge shows. For TODAY this prefers the live
@@ -827,7 +1112,7 @@ struct TodayView: View {
     private func ringEmptyOverlay(d: DailyMetric?) -> some View {
         VStack(spacing: 3) {
             if let n = recoveryCalibration {
-                Text("Calibrating").font(StrandFont.headline).foregroundStyle(StrandPalette.textTertiary)
+                Text("Calibrating").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                 Text("\(n) of \(Baselines.minNightsSeed)").font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
             } else {
                 ringNoData()
@@ -837,7 +1122,39 @@ struct TodayView: View {
 
     @ViewBuilder
     private func ringNoData() -> some View {
-        Text("No data").font(StrandFont.headline).foregroundStyle(StrandPalette.textTertiary)
+        Text("No data").font(StrandFont.headline).foregroundStyle(StrandPalette.textSecondary)
+    }
+
+    /// Strap-battery badge for the Today header (WHOOP-style): the percentage + a clean custom battery
+    /// glyph that fills proportionally and turns red when low. Renders nothing until the strap reports a
+    /// battery level, so a disconnected/sim state shows no stray icon.
+    private struct StrapBatteryBadge: View {
+        let pct: Double?
+        var body: some View {
+            if let pct {
+                let frac = max(0.06, min(1, pct / 100))
+                let fill = pct <= 15 ? StrandPalette.statusCritical : StrandPalette.textSecondary
+                HStack(spacing: 6) {
+                    Text("\(Int(pct.rounded()))%")
+                        .font(StrandFont.captionNumber)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    HStack(spacing: 1.5) {
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .stroke(StrandPalette.textTertiary, lineWidth: 1.5)
+                                .frame(width: 24, height: 12)
+                            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                .fill(fill)
+                                .frame(width: max(2, 20 * frac), height: 7)
+                                .padding(.leading, 2)
+                        }
+                        Capsule().fill(StrandPalette.textTertiary).frame(width: 2, height: 5)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Strap battery \(Int(pct.rounded())) percent")
+            }
+        }
     }
 
     // MARK: HEART RATE — today's continuous HR, off the strap's own ~1Hz history.
@@ -1141,6 +1458,15 @@ struct TodayView: View {
                         present: !appleDays.isEmpty,
                         detail: "\(appleDays.count) days · \(workouts.filter { WorkoutSource.isAppleHealth($0.source) }.count) workouts"
                     )
+                    if xiaomiDays > 0 {
+                        Divider().overlay(StrandPalette.hairline)
+                        sourceRow(
+                            badge: "Mi Band",
+                            tint: StrandPalette.metricAmber,
+                            present: true,
+                            detail: "\(xiaomiDays) days · \(xiaomiSleeps) sleeps"
+                        )
+                    }
                     strapBatteryRow
                     Divider().overlay(StrandPalette.hairline)
                     strapSyncRow
@@ -1300,6 +1626,14 @@ struct TodayView: View {
 
         workouts = await repo.workoutRows()
         appleDays = await repo.appleDailyRows()
+        // Mi Band (Mi Fitness import) — distinct days across its representative metric keys.
+        let xSteps = await repo.series(key: "steps", source: "xiaomi-band")
+        let xSleep = await repo.series(key: "sleep_total_min", source: "xiaomi-band")
+        xiaomiDays = Set(xSteps.map(\.day) + xSleep.map(\.day)).count
+        if let store = await repo.storeHandle() {
+            let farFuture = Int(Date.distantFuture.timeIntervalSince1970)
+            xiaomiSleeps = ((try? await store.sleepSessions(deviceId: "xiaomi-band", from: 0, to: farFuture, limit: 4000))?.count) ?? 0
+        }
 
         // HR trend for the SELECTED day — 5-minute bucket means from that logical day's local midnight.
         // For today the window runs to now (an in-progress curve); for a navigated past day it runs the
@@ -1341,6 +1675,27 @@ struct TodayView: View {
         sleepToday = await repo.allSleepSessions(days: selectedDayOffset + 2)
             .filter { $0.endTs > windowStart && $0.startTs < windowEnd }
             .max(by: { ($0.endTs - $0.startTs) < ($1.endTs - $1.startTs) })
+
+        announceNewDaysIfNeeded()
+    }
+
+    /// Post a single honest `.reading` update to the inbox when a refresh brought in NEW days (a WHOOP
+    /// import or an overnight backfill). The count is real — the growth in `repo.days` since the last
+    /// load — never fabricated. Only announces genuine growth: the FIRST load (nil baseline) just sets
+    /// the baseline silently, and a navigated past day is ignored. Links to Trends.
+    private func announceNewDaysIfNeeded() {
+        let count = repo.days.count
+        defer { lastSeenDayCount = count }
+        guard selectedDayOffset == 0, let previous = lastSeenDayCount else { return }
+        let added = count - previous
+        guard added > 0 else { return }
+        updateStore.post(UpdateItem(
+            kind: .reading,
+            title: "New data added",
+            message: added == 1 ? "1 new day of history landed. Open Trends to see it."
+                                : "\(added) new days of history landed. Open Trends to see them.",
+            deepLink: NavRouter.Destination.trends.rawValue
+        ))
     }
 
     /// Trailing-window values for a metric — NO fall back to all history. The section is labelled a

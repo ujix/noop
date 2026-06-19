@@ -2,6 +2,9 @@ package com.noop.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.widget.Toast
+import com.noop.analytics.SleepMark
+import com.noop.analytics.SleepMarkType
 import com.noop.analytics.SleepWindowReclip
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -274,6 +277,23 @@ fun SleepScreen(
                 source = restHeroSource(imported, days),
             )
             Spacer(Modifier.height(Metrics.selectorTopUp))
+            // SLEEP MARKS — tap to log "going to sleep" / "I'm awake" (#461, Phase 1). LOGGING ONLY:
+            // a mark is persisted to the `sleep_mark` series + the shareable strap log; it never
+            // changes the detected sleep. Mirrors macOS SleepView.sleepMarkCard.
+            SleepMarkCard(
+                onMark = { type ->
+                    val mark = SleepMark.now(type)
+                    // The shareable strap log is the human-readable surface in a debug export.
+                    vm.ble.externalLog(mark.logLine())
+                    scope.launch {
+                        runCatching {
+                            vm.repo.upsertMetricSeries(listOf(mark.metricPoint("my-whoop")))
+                        }
+                    }
+                    Toast.makeText(context, mark.confirmation(), Toast.LENGTH_SHORT).show()
+                },
+            )
+            Spacer(Modifier.height(Metrics.selectorTopUp))
             Hero(
                 display = display,
                 clock = night?.clockLabel ?: model?.clockLabel,
@@ -343,6 +363,56 @@ fun SleepScreen(
                 HoursVsNeededCard(model)
                 Spacer(Modifier.height(Metrics.selectorTopUp))
                 SleepConsistencyCard(sleeps)
+            }
+        }
+    }
+}
+
+// MARK: - 0b. SLEEP MARKS — tap to log "going to sleep" / "I'm awake" (#461, Phase 1)
+//
+// A compact additive card with two buttons. Tapping reports the chosen mark up to [onMark], which the
+// screen persists to the `sleep_mark` metric series AND appends to the shareable strap log, then
+// confirms with a Toast. LOGGING ONLY: a mark never touches the sleep detector or the night boundaries
+// on this screen; it's a record for later tap-driven sleep bounds + calibration. Mirrors macOS
+// SleepView.sleepMarkCard.
+
+@Composable
+private fun SleepMarkCard(onMark: (SleepMarkType) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader(title = "Sleep marks", overline = "Tap to log", trailing = "Phase 1")
+        NoopCard(tint = Palette.restColor) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Tap when you're heading to bed or when you wake. Each tap is logged with the time — it doesn't change tonight's detected sleep.",
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+                    Button(
+                        onClick = { onMark(SleepMarkType.BEDTIME) },
+                        modifier = Modifier.weight(1f).semantics { contentDescription = "Log going to sleep" },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Palette.surfaceInset,
+                            contentColor = Palette.textPrimary,
+                        ),
+                    ) {
+                        Icon(Icons.Filled.Bedtime, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Going to sleep", style = NoopType.subhead)
+                    }
+                    Button(
+                        onClick = { onMark(SleepMarkType.WAKE) },
+                        modifier = Modifier.weight(1f).semantics { contentDescription = "Log waking up" },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Palette.surfaceInset,
+                            contentColor = Palette.textPrimary,
+                        ),
+                    ) {
+                        Icon(Icons.Filled.WbSunny, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("I'm awake", style = NoopType.subhead)
+                    }
+                }
             }
         }
     }

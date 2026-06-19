@@ -6,6 +6,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.noop.BuildConfig
+import com.noop.ble.PuffinExperiment
 import java.io.File
 
 /**
@@ -28,10 +29,91 @@ object LogExport {
             .format(System.currentTimeMillis())
 
     /**
+     * A full `YYYYMMDD-HHMMSS` wall-clock stamp for the SCHEDULED daily auto-export (#510, maddognik), so
+     * a day-after-day run drops sortable, second-precise, non-colliding files:
+     * `noop-straplog-20260617-070000.txt` (and the raw `.bin` alongside). Distinct from [timestamp]
+     * (minute-precision, for interactive shares) because the scheduler can fire twice in the same minute
+     * across a reschedule and we never want one auto-export to clobber another. Locale-independent so the
+     * stamp is identical on every device. Injectable epoch purely for the unit test.
+     */
+    fun exportStamp(nowMs: Long = System.currentTimeMillis()): String =
+        java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(nowMs)
+
+    /** The scheduled-export filenames, kept together so the formatter + extensions live in one place. */
+    fun strapLogFilename(nowMs: Long = System.currentTimeMillis()) = "noop-straplog-${exportStamp(nowMs)}.txt"
+    fun rawCaptureFilename(nowMs: Long = System.currentTimeMillis()) = "noop-straplog-${exportStamp(nowMs)}.bin"
+
+    /**
+     * Mirror the latest strap-log tail into the durable [StrapLogBuffer] (#510). Called from the same UI
+     * actions that ship a log interactively, AND on demand by [DebugExportScheduler] before a scheduled
+     * write, so the 24h rolling buffer that the background worker reads is kept current even though the
+     * worker can't reach the live BLE client. REPLACE semantics: `logText` is the client's authoritative
+     * recent window, so we overwrite rather than append (no overlap duplication).
+     */
+    fun mirrorToRollingBuffer(logText: String) {
+        StrapLogBuffer.replaceWith(logText)
+    }
+
+    /**
+     * The SCHEDULED daily debug export (#510): write the rolling-buffer strap log — plus the raw 5/MG
+     * capture alongside as a `.bin`, if one exists — into the app-private export dir under a timestamped
+     * name, returning the files written (log first). Unlike the interactive share paths this fires no
+     * chooser: it runs from a [androidx.work.Worker] with no UI, leaving a dated pair on disk the user can
+     * pick up later from Settings or a file manager. Reuses [StrapLogBuffer.snapshot] for the body so the
+     * scheduled file matches what an interactive share would have shown.
+     *
+     * [logText] is the live tail if the scheduler could reach the BLE client; when it can't, it passes the
+     * empty string and we fall back to the rolling buffer alone. Best-effort: returns an empty list on
+     * failure rather than throwing into the worker.
+     */
+    fun writeScheduledExport(context: Context, logText: String, nowMs: Long = System.currentTimeMillis()): List<File> =
+        runCatching {
+            if (logText.isNotBlank()) StrapLogBuffer.replaceWith(logText, nowMs)
+            val body = StrapLogBuffer.snapshot(nowMs)
+
+            val dir = exportDir(context)
+            val out = arrayListOf<File>()
+
+            val header = buildString {
+                appendLine("NOOP strap log (scheduled debug export)")
+                appendLine("App:     ${BuildConfig.VERSION_NAME} (${BuildConfig.TIER})")
+                appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+                appendLine("Device:  ${Build.MANUFACTURER} ${Build.MODEL}")
+                appendLine("─".repeat(40))
+            }
+            val text = body.ifBlank { "(rolling strap-log buffer is empty — connect to your strap so lines accrue)" }
+            val logFile = File(dir, strapLogFilename(nowMs))
+            logFile.writeText(header + "\n" + text)
+            out.add(logFile)
+
+            // The raw 5/MG capture (JSONL of every backfilled frame) copied alongside as a matching `.bin`
+            // so the scheduled drop is a self-contained pair, mirroring the interactive shareRawAndLog. Only
+            // present when a 5/MG owner has the opt-in capture on and a history sync has run.
+            val main = File(context.filesDir, com.noop.ble.WhoopBleClient.WHOOP5_CAPTURE_FILE)
+            val prev = File(context.filesDir, "${com.noop.ble.WhoopBleClient.WHOOP5_CAPTURE_FILE}.1")
+            if (main.exists() || prev.exists()) {
+                val rawFile = File(dir, rawCaptureFilename(nowMs))
+                rawFile.outputStream().bufferedWriter().use { w ->
+                    for (f in listOf(prev, main)) if (f.exists()) f.bufferedReader().use { r -> r.copyTo(w) }
+                }
+                out.add(rawFile)
+            }
+            out.toList()
+        }.getOrDefault(emptyList())
+
+    /** App-private export dir for the scheduled drops — under the same cache/logs tree the FileProvider
+     *  already grants, so a future "open last export" share works without a manifest change. */
+    private fun exportDir(context: Context): File =
+        File(context.cacheDir, "logs").apply { mkdirs() }
+
+    /**
      * Build the shareable strap-log file (header + body + last crash) under cache/logs and return it,
      * so both the single-share and the "raw + log" matched-pair export write the SAME content.
      */
     private fun writeStrapLogFile(context: Context, logText: String): File {
+        // Mirror every interactively-shared tail into the durable rolling buffer (#510) so the scheduled
+        // background export has a current source even when the live BLE client is gone.
+        mirrorToRollingBuffer(logText)
         val header = buildString {
             appendLine("NOOP strap log")
             appendLine("App:     ${BuildConfig.VERSION_NAME} (${BuildConfig.TIER})")
@@ -95,20 +177,33 @@ object LogExport {
     }
 
     /**
+     * Empty-state message when there's no raw capture to include (#32). Accurate per device + toggle:
+     * a 4.0 can never produce one (5/MG-only feature); a 5/MG needs the toggle on + a history sync;
+     * if the toggle is already on, don't tell them to enable it again. `sharingLog` adds the log tail.
+     */
+    private fun noCaptureMsg(context: Context, whoop5Connected: Boolean, sharingLog: Boolean): String {
+        val tail = if (sharingLog) " Sharing the strap log." else ""
+        return when {
+            !whoop5Connected ->
+                "Raw capture records WHOOP 5/MG history syncs and doesn't apply to WHOOP 4.0 (already fully decoded).$tail"
+            !PuffinExperiment.from(context).isCaptureEnabled ->
+                "No raw capture yet — turn on \"Record 5/MG raw capture\" above, then let a history sync run.$tail"
+            else ->
+                "Raw capture is on — let a 5/MG history sync run, then try again.$tail"
+        }
+    }
+
+    /**
      * Shares the opt-in 5/MG raw backfill capture (JSONL of every frame from history syncs) for the
      * puffin biometric decode effort (#78). Copies filesDir → cache (the FileProvider path already
      * covers cache/logs) and prepends a header with an informed-consent line: the file holds raw
      * biometric frames and the strap's own console text.
      */
-    fun shareWhoop5Capture(context: Context) {
+    fun shareWhoop5Capture(context: Context, whoop5Connected: Boolean) {
         runCatching {
             val out = writeCaptureFile(context)
             if (out == null) {
-                Toast.makeText(
-                    context,
-                    "No capture yet — turn on \"Record 5/MG raw capture\", let a history sync run, then share again.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                Toast.makeText(context, noCaptureMsg(context, whoop5Connected, sharingLog = false), Toast.LENGTH_LONG).show()
                 return
             }
             val send = Intent(Intent.ACTION_SEND).apply {
@@ -130,16 +225,12 @@ object LogExport {
      * there's no capture yet, falls back to sharing just the log so the tap isn't a dead end. Reuses the
      * same file-builders the single-share paths use.
      */
-    fun shareRawAndLog(context: Context, logText: String) {
+    fun shareRawAndLog(context: Context, logText: String, whoop5Connected: Boolean) {
         runCatching {
             val logFile = writeStrapLogFile(context, logText)
             val capture = writeCaptureFile(context)
             if (capture == null) {
-                Toast.makeText(
-                    context,
-                    "No raw capture yet — turn on \"Record 5/MG raw capture\", let a history sync run, then export again. Sharing just the strap log.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                Toast.makeText(context, noCaptureMsg(context, whoop5Connected, sharingLog = true), Toast.LENGTH_LONG).show()
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_STREAM, fileUri(context, logFile))

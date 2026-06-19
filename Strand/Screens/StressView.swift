@@ -131,6 +131,9 @@ struct StressView: View {
         // in-app and passive (no alert / notification), inheriting the app environment.
         .sheet(isPresented: $showBreathe) {
             NavigationStack { BreathingView() }
+                #if os(macOS)
+                .frame(width: 520, height: 760)
+                #endif
         }
     }
 
@@ -239,7 +242,7 @@ struct StressView: View {
     //
     // A flat 180° Material gauge (surfaceInset track + the 3-stop blue→gold→orange
     // stressGradient value arc, round caps) with a needle/marker at the value and a
-    // centred big number + state word in gold. No scenic starfield / bloom — Aaron
+    // centred big number + state word in gold. No scenic starfield / bloom — the maintainer
     // asked for less glow, so the hero reads clean and flat over the frosted card.
 
     private func heroCard(_ model: StressModel) -> some View {

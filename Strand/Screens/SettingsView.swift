@@ -6,6 +6,7 @@ import AppKit
 import UIKit
 #endif
 import UniformTypeIdentifiers
+import PhotosUI
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
@@ -16,6 +17,9 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var profile: ProfileStore
+
+    /// Profile-photo picker selection (PhotosUI). Cleared back to nil once the bytes are loaded.
+    @State private var avatarPickerItem: PhotosPickerItem?
 
     /// Backup & restore UI state.
     @State private var backupBusy = false
@@ -67,6 +71,18 @@ struct SettingsView: View {
     /// current name stays visible separately above it.
     @State private var strapNameDraft = ""
 
+    /// Whether to surface the WHOOP 5/MG-only probes (puffin/R22/broadcast-HR/frame-capture). Gated so a
+    /// confident 4.0 owner never sees 5/MG controls that can't touch their strap (#22). The model
+    /// preference DEFAULTS to whoop4, so we deliberately do NOT hide on the raw default alone — the same
+    /// `"selectedWhoopModel"` key is rewritten to the family that actually advertised when a strap
+    /// connects (BLEManager, PR#195), so a real 5/MG owner who never opened the model picker still flips
+    /// this true the moment their strap is discovered. We hide the 5/MG block only when the user is
+    /// confidently on a 4.0 (pref says whoop4 AND nothing 5/MG is connected). The always-on raw-CSV
+    /// diagnostic stays visible on every model regardless.
+    private var showFiveMGControls: Bool {
+        selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue
+    }
+
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var temperatureUnit: TemperatureUnit {
         UnitPrefs.resolveTemperature(system: unitSystem, override: temperatureRaw)
@@ -99,6 +115,7 @@ struct SettingsView: View {
     var body: some View {
         ScreenScaffold(title: "Settings",
                        subtitle: "Your numbers, your strap, and how NOOP works. All on \(Platform.deviceNounPhrase).") {
+            profilePhotoCard
             profileCard
             unitsCard
             appearanceCard
@@ -127,6 +144,50 @@ struct SettingsView: View {
             DiagnosticsSheet(onClose: { showDiagnostics = false })
         }
         #endif
+    }
+
+    // MARK: - Profile photo (optional, on-device)
+
+    /// Set / change / remove an optional profile picture. PhotosUI's `PhotosPicker` works on both
+    /// iOS 16+ and macOS 13+ (NOOP's floor), so the same control serves both platforms — no
+    /// availability gating needed. The photo is stored only on this device (NOOP is fully offline).
+    private var profilePhotoCard: some View {
+        SettingsSection(
+            icon: "person.crop.circle",
+            title: "Profile photo",
+            blurb: "Optional. Add a photo for the avatar in the top-left. Stored only on \(Platform.deviceNounPhrase) — NOOP is offline, so it's never uploaded."
+        ) {
+            HStack(spacing: 16) {
+                ProfileAvatarView(imageData: profile.avatarImageData, size: 64)
+                    .accessibilityLabel(profile.hasAvatar ? "Your profile photo" : "No profile photo set")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+                        Text(profile.hasAvatar ? "Change photo" : "Choose photo")
+                    }
+                    .buttonStyle(.noopSecondary)
+
+                    if profile.hasAvatar {
+                        Button("Remove photo") { profile.clearAvatar() }
+                            .buttonStyle(.noopGhost)
+                            .accessibilityHint("Reverts to the default profile icon")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        // Load the picked photo's bytes, then hand them to the store (which downscales + persists).
+        // Clearing the selection afterwards lets the user re-pick the same photo if they want.
+        .onChange(of: avatarPickerItem) { newItem in
+            guard let newItem else { return }
+            Task {
+                let data = try? await newItem.loadTransferable(type: Data.self)
+                await MainActor.run {
+                    if let data { profile.setAvatar(data) }
+                    avatarPickerItem = nil
+                }
+            }
+        }
     }
 
     // MARK: - Profile
@@ -724,7 +785,15 @@ struct SettingsView: View {
 
     // MARK: - Experimental (WHOOP 5 / MG)
 
-    private var experimentalCard: some View {
+    /// Entry point used by `body`. The 5/MG probe card only renders for a 5/MG (see `showFiveMGControls`,
+    /// #22); the raw-sensor CSV diagnostic is split into its own card so it stays available on every
+    /// model — a 4.0 owner still needs the export to share decoded streams.
+    @ViewBuilder private var experimentalCard: some View {
+        if showFiveMGControls { fiveMGCard }
+        rawSensorDiagnosticsCard
+    }
+
+    private var fiveMGCard: some View {
         SettingsSection(
             icon: "flask.fill",
             title: "Experimental · WHOOP 5 / MG",
@@ -863,9 +932,22 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+        }
+    }
 
-                Divider().overlay(StrandPalette.hairline)
+    // MARK: - Diagnostics (every model)
 
+    /// Raw-sensor CSV export — a read-only diagnostic over the decoded streams NOOP already stores
+    /// (HR, R-R, motion, steps, PPG-HR, SpO₂, skin temp, resp, events). Split out of the 5/MG card so it
+    /// stays visible on EVERY model (#22): a WHOOP 4.0 owner still needs this to share decoded data.
+    private var rawSensorDiagnosticsCard: some View {
+        SettingsSection(
+            icon: "doc.text.magnifyingglass",
+            title: "Diagnostics",
+            blurb: "A read-only export of the decoded sensor streams NOOP already stores. Works on any strap — nothing is written to your device, and nothing is uploaded."
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
                 // MARK: Export raw sensor data (CSV) — a read-only diagnostic over the decoded streams
                 // NOOP already stores (HR, R-R, motion, steps, PPG-HR, SpO₂, skin temp, resp, events).
                 Button {
@@ -1280,10 +1362,36 @@ struct SettingsView: View {
                         )
                     }
 
-                    Text("Checks GitHub for the latest version when you tap — nothing else is sent.")
+                    Text("Checks the project's home (noop.fans) for the latest version when you tap — nothing else is sent.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
+
+                // Project home — NOOP's code, releases, issues and wiki now live on its own
+                // independent forge at noop.fans (after the project's GitHub was suspended).
+                Link(destination: URL(string: "https://noop.fans/NoopApp/noop")!) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .foregroundStyle(StrandPalette.accent)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Project home & source")
+                                .font(StrandFont.body)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text("noop.fans — code, releases, issues and the wiki.")
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Project home and source code at noop dot fans")
 
                 Text("A standalone companion for your WHOOP. Everything stays on this device — your history, your live stream, your numbers. Nothing is uploaded. NOOP is an independent, experimental project, not the WHOOP app.")
                     .font(StrandFont.subhead)
@@ -1624,6 +1732,7 @@ private struct StepsCalibrationSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                     explainerCard
+                    if didLoad && sampleMotion == nil { noMotionNote }
                     currentFitCard
                     comparisonCard
                     manualAdjustCard
@@ -1695,6 +1804,27 @@ private struct StepsCalibrationSheet: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("On the days your phone also counted steps, NOOP learns how much your motion maps to steps, then applies that to the strap-only days. The more matching days it has, the more it trusts the estimate.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Shown when the strap has banked NO motion yet (sampleMotion is nil) — the real reason a fresh
+    /// WHOOP 4.0 shows zero steps (#37 bringiton321). Steps are built from the strap's synced motion
+    /// history, so without a backfill there is nothing to estimate from — calibration can't help yet.
+    private var noMotionNote: some View {
+        NoopCard(tint: StrandPalette.metricAmber) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("No motion synced yet", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("We're not seeing any motion from your strap yet. Steps are estimated from your WHOOP's banked motion history — so your strap needs to sync that history before NOOP has anything to count.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Open NOOP near your strap and let it catch up (a full history sync can take a while on first run). Once a day or two of motion lands, your step estimate and the calibration below will start to fill in.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

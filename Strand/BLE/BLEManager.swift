@@ -280,9 +280,11 @@ public final class BLEManager: NSObject, ObservableObject {
     static let backfillLastAtKey = "backfillLastAt"
     /// Prevents a second backfill from starting on a same-process reconnect to the same strap.
     private var backfillStarted = false
-    /// #364 auto-continue: how many times we've immediately re-kicked a backfill after a 60s idle-cap
-    /// exit on THIS connection. Bounded by BackfillContinuation.maxAutoContinues so a pathological strap
-    /// can't pin the radio. Reset to 0 on a real HISTORY_COMPLETE (we're caught up) and on disconnect.
+    /// #364 auto-continue: how many times we've immediately re-kicked a backfill after a 60s idle-cap OR
+    /// HISTORY_COMPLETE exit on THIS connection. Bounded by BackfillContinuation.maxAutoContinues so a
+    /// pathological strap can't pin the radio. Reset to 0 once shouldAutoContinue proves we're caught up
+    /// (its else path, under the cap) and on disconnect — NOT unconditionally on every HISTORY_COMPLETE,
+    /// so a strap that slices one offload into many completions can't reset the cap each slice (#25).
     private var consecutiveAutoContinues = 0
     /// #364 spin-detector: the trim cursor as of the END of the previous backfill session this
     /// connection. exitBackfilling compares the current Backfiller.lastAckedTrim against this to decide
@@ -1056,30 +1058,37 @@ public final class BLEManager: NSObject, ObservableObject {
                 state.lastSyncError = nil
             }
             UserDefaults.standard.set(state.lastSyncedAt, forKey: "lastSyncedAt")
-            // We ran the offload to true completion ⇒ caught up. Clear the auto-continue streak so the
-            // NEXT deep backlog (e.g. after the app's been off again) gets a fresh budget of re-kicks.
-            consecutiveAutoContinues = 0
+            // NOTE: the auto-continue streak is NOT reset here. A HISTORY_COMPLETE is no longer assumed to
+            // mean "caught up" (#25): a strap whose firmware segments a deep offload into many small
+            // HISTORY_COMPLETE slices would otherwise reset the streak on every slice and never engage the
+            // 6-per-connection cap. The streak is cleared only once shouldAutoContinue proves we're actually
+            // caught up — inside maybeAutoContinueBackfill's else path, fired below for BOTH exit reasons.
         } else if reason == "timeout" {
             state.lastSyncError = "Sync interrupted — the strap went quiet. It will retry on the next sync."
         }
         checkStrapLiveness()         // safety-net: strap ahead of us AND our frontier frozen ⇒ stuck?
-        // #364: a session that ended on the 60s IDLE cap (NOT a real HISTORY_COMPLETE) while still
-        // connected, with more backlog to fetch and the trim still advancing, immediately re-kicks
-        // another offload instead of tearing down to wait the 15-min floor — so a deep oldest-first
-        // backlog drains in back-to-back ~60s passes rather than one-per-15-min. Bounded by the
-        // consecutive-cap and the spin-detector inside the pure predicate.
-        if reason == "timeout" {
+        // #364 / #25: a session that ended on the 60s IDLE cap OR on a true HISTORY_COMPLETE while still
+        // connected, with more backlog to fetch and the trim still advancing, immediately re-kicks another
+        // offload instead of tearing down to wait the 15-min floor — so a deep oldest-first backlog drains
+        // in back-to-back ~60s passes rather than one-per-15-min. #25: fire on HISTORY_COMPLETE too — some
+        // straps segment a deep overnight offload into many small HISTORY_COMPLETE slices and would
+        // otherwise stall between slices until the periodic floor. The pure shouldAutoContinue guards make
+        // this safe: a genuinely caught-up strap (newest within behindGapSeconds of the frontier and 0 rows)
+        // returns false and stops; that else path is also where the consecutive streak is cleared. Bounded
+        // by the consecutive-cap and the spin-detector inside the pure predicate either way.
+        if reason == "timeout" || reason == "HISTORY_COMPLETE" {
             maybeAutoContinueBackfill(trimAdvanced: trimAdvanced,
                                       rowsPersisted: backfiller?.sessionRowsPersisted ?? 0)
         }
     }
 
-    /// #364: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s idle-cap
-    /// exit. The "more backlog remains" test needs our persisted data frontier (max HR ts), which only
-    /// the Collector can read, so this hops onto a Task exactly like `checkStrapLiveness`. The decision
-    /// itself is the pure `BackfillContinuation.shouldAutoContinue` so it stays unit-testable; this
-    /// method only gathers the inputs, bumps the counter, and re-kicks via the SAME gated requestSync
-    /// path (so it still respects connected/bonded and can't double-start). The `.autoContinue` trigger ⇒
+    /// #364 / #25: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s
+    /// idle-cap exit OR a HISTORY_COMPLETE. The "more backlog remains" test needs our persisted data
+    /// frontier (max HR ts), which only the Collector can read, so this hops onto a Task exactly like
+    /// `checkStrapLiveness`. The decision itself is the pure `BackfillContinuation.shouldAutoContinue` so it
+    /// stays unit-testable; this method only gathers the inputs, bumps the counter (or clears it on the
+    /// caught-up else path — see #25), and re-kicks via the SAME gated requestSync path (so it still
+    /// respects connected/bonded and can't double-start). The `.autoContinue` trigger ⇒
     /// the BackfillPolicy 15-min floor is bypassed for this expedited continuation (the cap is the guard).
     /// `trimAdvanced` is the spin-detector signal computed in exitBackfilling (did this session move the
     /// trim cursor vs the previous one) — passed in because exitBackfilling has already advanced
@@ -1098,7 +1107,19 @@ public final class BLEManager: NSObject, ObservableObject {
                 ourFrontierTs: frontier,
                 rowsPersistedThisSession: rowsPersisted,
                 lastTrimAdvanced: trimAdvanced,
-                consecutiveCount: count) else { return }
+                consecutiveCount: count) else {
+                // No re-kick. THIS is the real "we're done draining" signal (#25): clear the auto-continue
+                // streak so the NEXT deep backlog (e.g. after the app's been off again) gets a fresh budget
+                // of re-kicks. Reset here — NOT unconditionally on every HISTORY_COMPLETE — so a strap that
+                // slices one offload into many completions can't keep resetting the cap and spin forever.
+                // EXCEPTION: if we stopped because the per-connection CAP is hit, leave the streak at/over
+                // the cap so it STAYS engaged for the rest of this connection (the 15-min floor takes over);
+                // zeroing it here would immediately re-arm the cap and let a runaway strap spin again.
+                if count < BackfillContinuation.defaultMaxAutoContinues {
+                    consecutiveAutoContinues = 0
+                }
+                return
+            }
             // Guard against a race: a real backfill may already have re-started (periodic/connect) in the
             // gap before this Task ran. requestSync's own gate (!backfilling) handles that, but skip the
             // log/counter churn if so.
@@ -1690,6 +1711,44 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         send(.runAlarm, payload: [0x01])
         log("Alarm: test buzz fired (patternId=2, runAlarm)")
+    }
+
+    /// Haptic Clock (#460): buzz the current wall-clock time out on the strap so the user can read it
+    /// off their wrist without a screen. The pure, unit-tested `HapticClock` encoder turns now into an
+    /// ordered pulse list (long = a "ten", short = a "unit", in HH-tens / HH-units / MM-tens / MM-units
+    /// order); we then schedule each pulse with `DispatchQueue.main.asyncAfter`, firing the EXISTING
+    /// maverick notification buzz (`runHapticsPattern`, remapped to the cmd-0x13 notify body in `send`)
+    /// at each pulse's start. Only the SCHEDULE is new — the buzz itself is the hardware-confirmed one.
+    ///
+    /// `is24h` controls 12- vs 24-hour reading; a Settings toggle should supply it (default 12h — see
+    /// `concerns`). Public so a Settings button can trigger it. Long-press / double-tap strap input is
+    /// hardware-dependent and not wired (no tap event is parsed yet — see `hardwareUnverifiable`).
+    ///
+    /// Each WHOOP notification buzz is a fixed-length motor pulse, so we can't vary the on-time per
+    /// pulse from the app; instead we map a LONG pulse to two stacked buzzes and a SHORT pulse to one,
+    /// which the wrist feels as "longer vs shorter". Pulse-feel timing can only be confirmed on a real
+    /// strap motor — best-effort here (see `hardwareUnverifiable`).
+    public func buzzTimeNow(is24h: Bool = false, at date: Date = Date()) {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.hour, .minute], from: date)
+        let pulses = HapticClock.pulses(hour: comps.hour ?? 0, minute: comps.minute ?? 0, is24h: is24h)
+        guard !pulses.isEmpty else {
+            log("Haptic Clock: nothing to buzz (00:00 in 24h form).")
+            return
+        }
+        log("Haptic Clock: buzzing \(pulses.count) pulses for the current time (\(is24h ? "24h" : "12h")).")
+        // Walk the encoder's pulse list, converting each (durationMs,gapMs) into a scheduled buzz.
+        // A long pulse is felt as a heavier buzz (2 stacked loops); a short pulse as a light one (1).
+        var offsetMs = 0
+        for pulse in pulses {
+            let loops = pulse.isLong ? 2 : 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(offsetMs)) { [weak self] in
+                // patternId/loops payload — send() remaps this to the 5/MG maverick notify buzz; on a
+                // WHOOP 4.0 it's the native runHapticsPattern. Same call the inactivity nudge uses.
+                self?.send(.runHapticsPattern, payload: [2, UInt8(clamping: loops), 0, 0, 0])
+            }
+            offsetMs += pulse.durationMs + pulse.gapMs
+        }
     }
 
     /// Inactivity reminder (#419): on each natural offload completion, run the shipped, unit-tested

@@ -63,6 +63,10 @@ struct LiveView: View {
     /// active. Auto-opens when a workout begins; closing just hides it (the workout keeps recording).
     @State private var showLiveWorkout = false
 
+    /// Manual HRV snapshot (#127) — presents the "Take an HRV reading" screen as a sheet. Entry sits in
+    /// the Session console and is only enabled while bonded (the reading needs the live R-R stream).
+    @State private var showHRVSnapshot = false
+
     var body: some View {
         ScreenScaffold(title: "Live Body Console",
                        subtitle: "Current physiology, strap trust, and session controls in one working view.") {
@@ -116,6 +120,12 @@ struct LiveView: View {
         .onChangeCompat(of: model.activeWorkout != nil) { active in if active { showLiveWorkout = true } }
         .sheet(isPresented: $showLiveWorkout) {
             LiveWorkoutView(onClose: { showLiveWorkout = false })
+                .environmentObject(model)
+                .environmentObject(live)
+        }
+        // Manual HRV snapshot (#127) — a still, seated 60s R-R reading.
+        .sheet(isPresented: $showHRVSnapshot) {
+            HRVSnapshotView(onClose: { showHRVSnapshot = false })
                 .environmentObject(model)
                 .environmentObject(live)
         }
@@ -566,6 +576,19 @@ struct LiveView: View {
             .tint(StrandPalette.accent)
             .disabled(!activeConnection)
             .help("Refresh strap battery and connection state.")
+
+            // Manual HRV snapshot (#127) — a still, seated 60s R-R reading. Needs the live R-R
+            // stream, so it's gated on a bonded connection just like the workout/refresh actions.
+            Button { showHRVSnapshot = true } label: {
+                Label("HRV reading", systemImage: "waveform.path.ecg")
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .buttonStyle(.bordered)
+            .tint(StrandPalette.restBright)
+            .disabled(!activeConnection)
+            .help(activeConnection
+                  ? "Take a 60-second seated HRV reading from the live R-R stream."
+                  : "Connect your strap first — the reading needs the live R-R stream.")
         }
     }
 

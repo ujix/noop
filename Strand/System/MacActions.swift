@@ -10,6 +10,7 @@ enum MacActionKind: String, Codable, CaseIterable, Identifiable {
     case buzzBack
     case markMoment
     case sleepMark
+    case hapticClock
     case runShortcut
 
     var id: String { rawValue }
@@ -20,6 +21,7 @@ enum MacActionKind: String, Codable, CaseIterable, Identifiable {
         case .buzzBack:    return "Buzz back (confirm)"
         case .markMoment:  return "Mark a moment"
         case .sleepMark:   return "Log a sleep mark"
+        case .hapticClock: return "Buzz the time"
         case .runShortcut: return "Run a Shortcut…"
         }
     }
@@ -30,6 +32,7 @@ enum MacActionKind: String, Codable, CaseIterable, Identifiable {
         case .buzzBack:    return "waveform.path"
         case .markMoment:  return "mappin.and.ellipse"
         case .sleepMark:   return "moon.zzz.fill"
+        case .hapticClock: return "clock.fill"
         case .runShortcut: return "bolt.fill"
         }
     }

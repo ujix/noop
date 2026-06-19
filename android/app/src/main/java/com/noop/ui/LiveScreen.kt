@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Watch
@@ -51,6 +52,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -231,6 +234,18 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
             StartWorkoutSheet(vm = viewModel, onDismiss = { showSportPicker = false })
         }
 
+        // Manual HRV snapshot (#127) — a still, seated 60s R-R reading. A plain full-screen Dialog so
+        // it floats over Live; gated on a bonded connection (the reading needs the live R-R stream).
+        var showHrvSnapshot by remember { mutableStateOf(false) }
+        if (showHrvSnapshot) {
+            Dialog(
+                onDismissRequest = { showHrvSnapshot = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                HrvSnapshotScreen(viewModel = viewModel, onClose = { showHrvSnapshot = false })
+            }
+        }
+
         // Session console — record or inspect the current stream.
         SectionHeader(title = "Session", overline = "Record or inspect the current stream")
 
@@ -325,6 +340,26 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
                     style = NoopType.footnote, color = Palette.textSecondary,
                 )
                 row.routePolyline?.let { RouteCanvas(it, modifier = Modifier.padding(top = 8.dp)) }
+            }
+
+            // Manual HRV snapshot (#127) — a still, seated 60s R-R reading. Needs the live R-R stream,
+            // so it's gated on a bonded connection just like the workout/refresh actions above.
+            OutlinedButton(
+                onClick = { showHrvSnapshot = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = activeConnection,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.restBright),
+            ) {
+                Icon(
+                    Icons.Filled.MonitorHeart,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp).padding(end = 4.dp),
+                )
+                Text(
+                    "Take an HRV reading", style = NoopType.captionNumber,
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                )
             }
         }
 

@@ -81,7 +81,7 @@ public enum StrandPalette {
 
     // MARK: Accent — chrome anchor (links, selection, focus, generic accent). On DARK this is the brand
     // GOLD; on LIGHT it shifts to the deep brand BLUE so gold is reserved for the recovery/Charge world
-    // and the gold FAB — keeping the light theme from reading as wall-to-wall gold (Aaron 2026-06-16).
+    // and the gold FAB — keeping the light theme from reading as wall-to-wall gold (the maintainer 2026-06-16).
     public static let accent         = Color(light: "#234F9E", dark: "#E8B84B") // deep blue (light) / brand gold (dark)
     public static let accentHover    = Color(light: "#1C3F80", dark: "#FCEBA8")
     public static let accentMuted    = Color(light: "#E4ECF6", dark: "#2A2210") // selected-row tint (pale blue / dark gold)

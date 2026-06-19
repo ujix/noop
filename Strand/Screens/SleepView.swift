@@ -71,6 +71,11 @@ struct SleepView: View {
     /// its OWN separate session row (`userEdited = 1`) — never folded into the night's main sleep.
     @State private var addNap: AddNapSeed?
 
+    /// The most recent sleep-mark the user tapped, shown as a transient confirmation line under the
+    /// two buttons and cleared after a moment. Drives the SwiftUI haptic landing too. LOGGING-ONLY:
+    /// a mark never feeds the sleep detector — it's persisted to the metric series + strap log. (#461)
+    @State private var lastMark: SleepMark?
+
     var body: some View {
         // Resolve the memoized model for THIS render. `dataKey` is O(1)-ish (counts + last-row
         // identity), so comparing it every render is cheap. When it matches the cached key we
@@ -85,6 +90,7 @@ struct SleepView: View {
                 if let resolved {
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                         restHero(resolved)
+                        sleepMarkCard
                         hero(resolved)
                         metricGrid(resolved)
                         sleepDebtLedger(resolved)
@@ -245,6 +251,67 @@ struct SleepView: View {
             return "Whoop"
         }
         return "On-device"
+    }
+
+    // MARK: - 0b. SLEEP MARKS — tap to log "going to sleep" / "I'm awake" (#461, Phase 1)
+
+    /// A compact additive card with two buttons. Tapping logs a timestamped sleep-mark — persisted to
+    /// the `sleep_mark` metric series AND appended to the shareable strap log — then confirms with a
+    /// haptic and a transient line. LOGGING ONLY: a mark never touches the sleep detector or the night
+    /// boundaries on this screen; it's a record for later tap-driven sleep bounds + calibration.
+    @ViewBuilder
+    private var sleepMarkCard: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Sleep marks", overline: "Tap to log", trailing: "Phase 1")
+            NoopCard(tint: StrandPalette.restColor) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Tap when you're heading to bed or when you wake. Each tap is logged with the time — it doesn't change tonight's detected sleep.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: NoopMetrics.gap) {
+                        Button { logMark(.bedtime) } label: {
+                            Label("Going to sleep", systemImage: "moon.zzz.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.noopSecondary)
+                        .accessibilityLabel("Log going to sleep")
+
+                        Button { logMark(.wake) } label: {
+                            Label("I'm awake", systemImage: "sun.max.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.noopSecondary)
+                        .accessibilityLabel("Log waking up")
+                    }
+                    if let lastMark {
+                        Text(lastMark.confirmation)
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.restColor)
+                            .transition(.opacity)
+                            .accessibilityLabel(lastMark.confirmation)
+                    }
+                }
+            }
+        }
+        // A success haptic lands when a new mark is captured (value-driven, not per-tap), matching the
+        // app's sparse tactile vocabulary. No-op on macOS.
+        .strandHaptic(.success, trigger: lastMark?.tsMs ?? 0)
+    }
+
+    /// Persist + log a tapped mark. Optimistically shows the confirmation immediately, fires the
+    /// haptic via `lastMark`, appends the human-readable strap-log line, then writes the metric-series
+    /// row through the repo's live store handle (no new Repository API, no schema change). The write is
+    /// idempotent by (deviceId, day, key). (#461)
+    private func logMark(_ type: SleepMarkType) {
+        let mark = SleepMark(type: type)
+        withAnimation(.easeOut(duration: 0.2)) { lastMark = mark }
+        // The shareable strap log is the human-readable surface that lands in a debug export.
+        live.append(log: mark.logLine)
+        Task {
+            guard let store = await repo.storeHandle() else { return }
+            try? await store.upsertMetricSeries([mark.metricPoint], deviceId: repo.deviceId)
+        }
     }
 
     // MARK: - 1. HERO — stage breakdown

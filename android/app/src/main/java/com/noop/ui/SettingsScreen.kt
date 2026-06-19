@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -72,6 +74,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.BuildConfig
 import com.noop.analytics.Zones
 import com.noop.ble.PuffinExperiment
+import com.noop.ble.WhoopModel
 import com.noop.data.DataBackup
 import com.noop.ingest.RawSensorExport
 import com.noop.ingest.WhoopCsvExporter
@@ -295,6 +298,20 @@ fun SettingsScreen(vm: AppViewModel) {
     var deepData by remember { mutableStateOf(puffinExperiment.isDeepDataEnabled) }
     var broadcastHr by remember { mutableStateOf(puffinExperiment.broadcastHr) }
 
+    // Whether to surface the WHOOP 5/MG-only probes (puffin / R22 / broadcast-HR / frame-capture). Gated
+    // so a confident 4.0 owner never sees 5/MG controls that can't touch their strap (#22). The model
+    // preference DEFAULTS to WHOOP4, so we deliberately do NOT hide on the raw default alone — the same
+    // "noop.selectedWhoopModel" key is rewritten to the family that actually advertised when a strap
+    // connects (WhoopBleClient.persistSelectedModel, PR#195), so a real 5/MG owner who never opened the
+    // model picker still flips this true once their strap is discovered. We also show it whenever a 5/MG
+    // is live-detected this session. Hide only when the user is confidently on a 4.0 (pref says WHOOP4
+    // AND nothing 5/MG is connected). Mirrors the macOS SettingsView `showFiveMGControls` gate.
+    val selectedModelName = remember(rev) {
+        context.getSharedPreferences(NoopPrefs.NAME, Context.MODE_PRIVATE)
+            .getString("noop.selectedWhoopModel", null)
+    }
+    val showFiveMGControls = selectedModelName == WhoopModel.WHOOP5_MG.name || live.whoop5Detected
+
     // "Keep connected in the background" — drives WhoopConnectionService (foreground service). Default
     // on. SharedPreferences isn't reactive, so the Switch mirrors into a local state.
     var backgroundConnection by remember { mutableStateOf(NoopPrefs.backgroundConnection(context)) }
@@ -305,6 +322,24 @@ fun SettingsScreen(vm: AppViewModel) {
 
     // "Debug logging" — mirror the strap log to logcat (adb). Default OFF so normal users don't.
     var debugLogging by remember { mutableStateOf(NoopPrefs.debugLogging(context)) }
+
+    // --- v5 Health & wellness toggle group. All SharedPreferences-backed (not reactive), so each Switch
+    // drives a local mirror that writes straight through to the same keys the v5 engine readers use.
+    // Illness watch routes through the ViewModel so the banner recomputes live; the rest are pref writes
+    // the engines pick up on the next analytics pass / offload. All opt-in / safe-default per spec.
+    var illnessWatch by remember { mutableStateOf(NoopPrefs.illnessWatch(context)) }
+    var cycleTracking by remember { mutableStateOf(NoopPrefs.cycleTracking(context)) }
+    var stressCheckIn by remember { mutableStateOf(BiofeedbackPrefs.checkInEnabled(context)) }
+    var stressAutoNudge by remember { mutableStateOf(BiofeedbackPrefs.autoNudge(context)) }
+    var rhythmEnabled by remember { mutableStateOf(RhythmConsent.isEnabled(context)) }
+    var coachSignals by remember { mutableStateOf(NoopPrefs.coachSignals(context)) }
+
+    // Scheduled debug export (#510) — the daily auto-export toggle + time-of-day. The settings object is
+    // its own SharedPreferences store; SharedPreferences isn't reactive, so the Switch + TimeChip mirror
+    // into local state and write straight through, then (re)schedule via DebugExportScheduler.
+    val debugExportSettings = remember { DebugExportSettings.from(context) }
+    var debugExportEnabled by remember { mutableStateOf(debugExportSettings.enabled) }
+    var debugExportMinutes by remember { mutableStateOf(debugExportSettings.timeMinutes) }
 
     // Imperial/Metric display preference (D#103). Display-only — stored data stays SI. The system drives
     // the profile fields below (imperial entry) too, so it's local state the whole screen reads.
@@ -400,6 +435,23 @@ fun SettingsScreen(vm: AppViewModel) {
         }
     }
 
+    // Modern Photo Picker for the optional profile photo (no READ_EXTERNAL_STORAGE permission needed).
+    // Returns a single image Uri (or null if cancelled); we decode + downscale + persist off the main
+    // thread via ProfileAvatarStore, which updates the live avatar everywhere. Stored only on this phone.
+    val avatarPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                ProfileAvatarStore.setAvatarFromUri(context, uri)
+            }
+            if (!ok) {
+                Toast.makeText(context, "Couldn't use that photo. Try another.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     ScreenScaffold(
         title = "Settings",
         subtitle = "Your numbers, your strap, and how NOOP works. All on this phone.",
@@ -407,6 +459,52 @@ fun SettingsScreen(vm: AppViewModel) {
         // Read the revision counter so every profile write recomposes this subtree
         // (SharedPreferences is not observable; `mutate` bumps `rev` after each write).
         @Suppress("UNUSED_VARIABLE") val tick = rev
+
+        // --- Profile photo (optional, on-device) ---
+        // Split into its own section ahead of the body-numbers Profile card, mirroring the iOS
+        // SettingsView `profilePhotoCard` (person.crop.circle, the offline blurb). A large avatar + a
+        // Choose/Change button and, once set, a Remove. Local-only and honest: the picked image is
+        // downscaled and kept on this phone, never uploaded. Reads ProfileAvatarStore.hasAvatar
+        // (snapshot state) so the controls update the instant a photo is set or cleared.
+        SettingsSection(
+            icon = Icons.Outlined.AccountCircle,
+            title = "Profile photo",
+            blurb = "Optional. Add a photo for the avatar in the top-left. Stored only on this phone — NOOP is offline, so it's never uploaded.",
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                ProfileAvatar(size = 64.dp, contentDescription = "Profile photo")
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                avatarPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.accent),
+                        ) {
+                            Text(
+                                if (ProfileAvatarStore.hasAvatar) "Change photo" else "Choose photo",
+                                style = NoopType.captionNumber,
+                            )
+                        }
+                        if (ProfileAvatarStore.hasAvatar) {
+                            OutlinedButton(
+                                onClick = { ProfileAvatarStore.clearAvatar(context) },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.statusCritical),
+                            ) { Text("Remove photo", style = NoopType.captionNumber) }
+                        }
+                    }
+                }
+            }
+        }
 
         // --- Profile ---
         SettingsSection(
@@ -940,7 +1038,8 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
-        // --- Experimental · WHOOP 5 / MG ---
+        // --- Experimental · WHOOP 5 / MG --- (hidden when the user is confidently on a 4.0, #22)
+        if (showFiveMGControls) {
         SettingsSection(
             icon = Icons.Filled.Science,
             title = "Experimental · WHOOP 5 / MG",
@@ -1128,7 +1227,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     color = Palette.textTertiary,
                 )
                 OutlinedButton(
-                    onClick = { LogExport.shareWhoop5Capture(context) },
+                    onClick = { LogExport.shareWhoop5Capture(context, live.whoop5Detected) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.textSecondary),
                 ) { Text("Share 5/MG capture (for the decode effort)", style = NoopType.captionNumber) }
@@ -1137,11 +1236,22 @@ fun SettingsScreen(vm: AppViewModel) {
                 // the strap log together (timestamped, same minute) so a protocol-mapping issue arrives
                 // with the frames AND the context that produced them.
                 OutlinedButton(
-                    onClick = { LogExport.shareRawAndLog(context, vm.ble.exportLogText()) },
+                    onClick = { LogExport.shareRawAndLog(context, vm.ble.exportLogText(), live.whoop5Detected) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.textSecondary),
                 ) { Text("Export raw + log (matched pair)", style = NoopType.captionNumber) }
+            }
+        }
+        } // end if (showFiveMGControls)
 
+        // --- Diagnostics (every model) --- the raw-sensor CSV export is split out of the 5/MG card so it
+        // stays available on a WHOOP 4.0 too (#22): a 4.0 owner still needs it to share decoded streams.
+        SettingsSection(
+            icon = Icons.Filled.Science,
+            title = "Diagnostics",
+            blurb = "A read-only export of the decoded sensor streams NOOP already stores. Works on any strap — nothing is written to your device, and nothing is uploaded.",
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Diagnostics: dump the decoded per-sample sensor streams (last 24h) to one long-format
                 // CSV so power users / external devs can prototype sleep/activity/VBT algorithms on real
                 // data without a BLE stream (#308/#276/#322). On-device only; plain text, no BLE hex.
@@ -1155,6 +1265,120 @@ fun SettingsScreen(vm: AppViewModel) {
                     style = NoopType.caption,
                     color = Palette.textTertiary,
                 )
+
+                // Haptic clock (#460): buzz the current time on the strap as a sequence of buzzes. No-ops
+                // safely when disconnected, so it stays enabled regardless of connection (matches the
+                // "Share strap log" row above, which also doesn't gate on a live strap). 12/24h follows the
+                // phone's own clock setting.
+                OutlinedButton(
+                    onClick = {
+                        vm.ble.buzzTimeNow(is24h = android.text.format.DateFormat.is24HourFormat(context))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.textSecondary),
+                ) { Text("Buzz the time on your strap", style = NoopType.captionNumber) }
+                Text(
+                    "Feel the current time as a sequence of buzzes (#460). Does nothing unless your strap is connected.",
+                    style = NoopType.caption,
+                    color = Palette.textTertiary,
+                )
+            }
+        }
+
+        // --- Scheduled debug export (#510, maddognik) --- a daily, no-UI drop of the timestamped strap
+        // log (+ raw .bin when a 5/MG capture exists) into the app's export folder at a time you choose, so
+        // an intermittent overnight fault leaves a dated log waiting instead of needing a manual share. The
+        // feature core lives in DebugExportScheduler/DebugExportSettings; this is just the controls. OFF by
+        // default. SharedPreferences isn't reactive, so the Switch + time mirror into local state.
+        SettingsSection(
+            icon = Icons.Filled.Storage,
+            title = "Scheduled debug export (#510)",
+            blurb = "Once a day at a time you choose, NOOP writes a timestamped strap log (plus the raw 5/MG capture, if you have one) to its export folder — no sharing, nothing leaves the phone. Useful for chasing an intermittent overnight fault. Off by default.",
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Daily auto-export",
+                            style = NoopType.subhead,
+                            color = Palette.textPrimary,
+                        )
+                        Text(
+                            "Writes a timestamped strap log (and the raw .bin if a 5/MG capture exists) to the app's export folder once a day at the time below.",
+                            style = NoopType.footnote,
+                            color = Palette.textTertiary,
+                        )
+                    }
+                    Switch(
+                        checked = debugExportEnabled,
+                        onCheckedChange = {
+                            debugExportEnabled = it
+                            debugExportSettings.enabled = it
+                            DebugExportScheduler.reschedule(context)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Palette.surfaceBase,
+                            checkedTrackColor = Palette.accent,
+                            uncheckedThumbColor = Palette.textSecondary,
+                            uncheckedTrackColor = Palette.surfaceInset,
+                            uncheckedBorderColor = Palette.hairline,
+                        ),
+                        modifier = Modifier.semantics {
+                            contentDescription = "Daily auto-export"
+                        },
+                    )
+                }
+
+                if (debugExportEnabled) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Export time", style = NoopType.subhead, color = Palette.textPrimary)
+                            Text(
+                                "The daily export runs at this time.",
+                                style = NoopType.footnote,
+                                color = Palette.textTertiary,
+                            )
+                        }
+                        TimeChip(
+                            minutes = debugExportMinutes,
+                            accessibilityLabel = "Daily export time",
+                            onPicked = {
+                                debugExportMinutes = it
+                                debugExportSettings.timeMinutes = it
+                                DebugExportScheduler.applyTimeChange(context)
+                            },
+                        )
+                    }
+                }
+
+                // "Export now" writes the dated file immediately (off the main thread, like the CSV export
+                // above) and confirms with a Toast naming the folder, so the user sees the feature work
+                // without waiting for the scheduled run.
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            val files = withContext(Dispatchers.IO) {
+                                LogExport.writeScheduledExport(context, vm.ble.exportLogText())
+                            }
+                            Toast.makeText(
+                                context,
+                                if (files.isNotEmpty()) "Wrote a dated debug export (${files.size} file${if (files.size == 1) "" else "s"}) to the app's export folder."
+                                else "Couldn't write the debug export.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.textSecondary),
+                ) { Text("Export now", style = NoopType.captionNumber) }
             }
         }
 
@@ -1162,7 +1386,85 @@ fun SettingsScreen(vm: AppViewModel) {
         // card (its own NoopCard + range picker + CTA), so it drops in without a SettingsSection wrapper.
         TrendsReportExportSection(vm)
 
-        // --- Backup & restore ---
+        // --- Health & wellness (v5 opt-in toggles) ---
+        SettingsSection(
+            icon = Icons.Filled.Science,
+            title = "Health & wellness",
+            blurb = "Optional, on-device wellness signals. Each is off by default, computed only on this phone from data you already have, and never a medical diagnosis.",
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                ToggleRow(
+                    title = "Illness heads-up",
+                    detail = "Watches your resting heart rate, HRV and skin temperature for the pattern that often shows up before you feel unwell, and surfaces a gentle heads-up. An observation about your own numbers — not a diagnosis.",
+                    checked = illnessWatch,
+                    onCheckedChange = {
+                        illnessWatch = it
+                        vm.setIllnessWatchEnabled(it)
+                    },
+                )
+                RowDivider()
+                ToggleRow(
+                    title = "Cycle awareness",
+                    detail = "Reads a coarse menstrual-cycle phase from your nightly skin-temperature shift, on this device only. Awareness only — not contraception, not a fertility predictor, not a medical service.",
+                    checked = cycleTracking,
+                    onCheckedChange = {
+                        cycleTracking = it
+                        vm.setCycleTrackingEnabled(it)
+                    },
+                )
+                RowDivider()
+                ToggleRow(
+                    title = "Stress check-ins (haptic)",
+                    detail = "Lets NOOP notice a fresh HRV dip while you're still and offer a minute to breathe. \"Stress\" here is an autonomic proxy from your own baseline — never a diagnosis. The strap gives one light confirming buzz; no push notification.",
+                    checked = stressCheckIn,
+                    onCheckedChange = {
+                        stressCheckIn = it
+                        BiofeedbackPrefs.setCheckInEnabled(context, it)
+                        // Turning the master off also disarms the auto-nudge sub-toggle so it can't fire.
+                        if (!it) { stressAutoNudge = false; BiofeedbackPrefs.setAutoNudge(context, false) }
+                    },
+                )
+                if (stressCheckIn) {
+                    ToggleRow(
+                        title = "Offer a breath automatically",
+                        detail = "When a dip is detected, surface the check-in card on its own (rate-limited, quiet-hours aware). Off keeps it manual.",
+                        checked = stressAutoNudge,
+                        onCheckedChange = {
+                            stressAutoNudge = it
+                            BiofeedbackPrefs.setAutoNudge(context, it)
+                        },
+                    )
+                }
+                RowDivider()
+                ToggleRow(
+                    title = "Rhythm (experimental)",
+                    detail = "An experimental picture of your beat-to-beat timing — a Poincaré scatter and plain regularity stats from quiet resting windows. Not an ECG and not a diagnosis; you'll read a short disclaimer and accept before it turns on.",
+                    checked = rhythmEnabled,
+                    onCheckedChange = {
+                        // Enabling here just un-gates the experimental item; the screen itself still shows
+                        // its consent clickwrap on first open (and re-prompts on a version bump). Disabling
+                        // clears the flag so the screen returns to its gate.
+                        rhythmEnabled = it
+                        if (it) {
+                            NoopPrefs.of(context).edit().putBoolean(RhythmConsent.KEY_ENABLED, true).apply()
+                        } else {
+                            NoopPrefs.of(context).edit().putBoolean(RhythmConsent.KEY_ENABLED, false).apply()
+                        }
+                    },
+                )
+                RowDivider()
+                ToggleRow(
+                    title = "Share on-device signals with the Coach",
+                    detail = "When the opt-in Coach is set up with your own key, also include a short summary of your strongest on-device patterns and Lab Book markers in its context. Summary only — no raw data leaves your phone. Requires the Coach's own data consent first.",
+                    checked = coachSignals,
+                    onCheckedChange = {
+                        coachSignals = it
+                        NoopPrefs.setCoachSignals(context, it)
+                    },
+                )
+            }
+        }
+
         SettingsSection(
             icon = Icons.Filled.Storage,
             title = "Backup & restore",
@@ -1236,7 +1538,36 @@ fun SettingsScreen(vm: AppViewModel) {
                     StatePill("v${BuildConfig.VERSION_NAME}", tone = StrandTone.Neutral, showsDot = false)
                 }
 
-                // Check for updates — a single, user-initiated call to GitHub's public releases API
+                // Project home — NOOP's code, releases, issues and wiki now live on its own
+                // independent forge at noop.fans (after the project's GitHub was suspended).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Palette.accent.copy(alpha = 0.10f))
+                        .border(1.dp, Palette.accent.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+                        .clickable {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://noop.fans/NoopApp/noop"))
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: ActivityNotFoundException) {
+                                Toast.makeText(context, "noop.fans/NoopApp/noop", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .semantics { contentDescription = "Project home and source at noop.fans" },
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Project home & source", style = NoopType.body, color = Palette.textPrimary)
+                        Text(
+                            "noop.fans — code, releases, issues and the wiki.",
+                            style = NoopType.caption,
+                            color = Palette.textTertiary,
+                        )
+                    }
+                }
+
+                // Check for updates — a single, user-initiated call to the project's public releases API (noop.fans)
                 // when the button is tapped. No background polling, no auto-update; nothing about you
                 // is sent. Android already holds INTERNET (for the opt-in Coach), so this adds nothing.
                 var updChecking by remember { mutableStateOf(false) }
@@ -1656,6 +1987,43 @@ private fun SettingsSection(
             Text(blurb, style = NoopType.subhead, color = Palette.textSecondary)
             content()
         }
+    }
+}
+
+// MARK: - Labelled toggle row (title + detail + trailing Switch)
+
+/**
+ * A title + explanatory detail on the left with a trailing [Switch], matching the in-section toggle idiom
+ * the Strap/Health Connect sections already use. Used by the v5 Health & wellness group so every opt-in
+ * reads consistently. The switch colours mirror the rest of Settings (gold track when on).
+ */
+@Composable
+private fun ToggleRow(
+    title: String,
+    detail: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = NoopType.subhead, color = Palette.textPrimary)
+            Text(detail, style = NoopType.footnote, color = Palette.textTertiary)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Palette.surfaceBase,
+                checkedTrackColor = Palette.accent,
+                uncheckedThumbColor = Palette.textSecondary,
+                uncheckedTrackColor = Palette.surfaceInset,
+                uncheckedBorderColor = Palette.hairline,
+            ),
+        )
     }
 }
 

@@ -3,7 +3,7 @@
 **Date:** 2026-06-16 · **Status:** approved direction, implementation in waves
 **Goal:** A fully-featured, beautiful Light theme across macOS, iOS and Android, toggleable with Dark, every surface legible/clean. Default = follow system; a 3-way override (System/Light/Dark) lives in Settings.
 
-## Decisions (Aaron, 2026-06-16)
+## Decisions (the maintainer, 2026-06-16)
 - **Canvas:** Warm Paper — warm off-white canvas, white cards. Keeps the "Titanium & Gold" identity warm; distinct from clinical health apps.
 - **Default:** Follow system, with an explicit Light/Dark override toggle in Settings.
 - **Widgets:** in scope this pass (iOS WidgetKit + Android Glance).

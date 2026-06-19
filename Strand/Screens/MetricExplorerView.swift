@@ -57,7 +57,11 @@ private func metricAccent(_ m: MetricDescriptor) -> Color {
     case "energy_kcal", "active_kcal":
         return StrandPalette.metricAmber
     default:
-        return m.source == "apple-health" ? StrandPalette.metricCyan : StrandPalette.textPrimary
+        switch m.source {
+        case "apple-health": return StrandPalette.metricCyan
+        case "xiaomi-band":  return StrandPalette.metricAmber
+        default:             return StrandPalette.textPrimary
+        }
     }
 }
 
@@ -153,8 +157,8 @@ struct MetricExplorerView: View {
             .task(id: repo.refreshSeq) { await probeEmptiness(refreshSeq: repo.refreshSeq) }
         #else
         // iOS: Explore is pushed INSIDE the More tab's NavigationStack. A nested NavigationStack made
-        // tapping a metric bounce straight back to the More list (#199) — so use the ambient stack and
-        // let the navigationDestination below resolve against it.
+        // tapping a metric bounce straight back to the More list (#199) — so use the ambient stack; the
+        // rows push their detail with a direct closure-based NavigationLink (#38).
         exploreScaffold
             .task(id: repo.refreshSeq) { await probeEmptiness(refreshSeq: repo.refreshSeq) }
         #endif
@@ -183,7 +187,13 @@ struct MetricExplorerView: View {
                         NoopCard(padding: 0) {
                             VStack(spacing: 0) {
                                 ForEach(Array(metrics.enumerated()), id: \.element.id) { idx, metric in
-                                    NavigationLink(value: metric) {
+                                    // Push the detail directly (closure-based), like every other More-tab
+                                    // screen. The old value + .navigationDestination(for:) pairing resolved
+                                    // against TWO registered destinations and double-pushed — the detail
+                                    // flashed then popped straight back (#38).
+                                    NavigationLink {
+                                        MetricDetailView(metric: metric)
+                                    } label: {
                                         MetricRow(metric: metric,
                                                   isEmpty: emptyByID[metric.id] ?? false)
                                     }
@@ -209,9 +219,8 @@ struct MetricExplorerView: View {
                 }
             }
         }
-        .navigationDestination(for: MetricDescriptor.self) { metric in
-            MetricDetailView(metric: metric)
-        }
+        // Rows push MetricDetailView directly (closure-based NavigationLink above) — no value/destination
+        // pairing, which is what double-pushed (#38). Nothing else registers a MetricDescriptor destination.
     }
 
     /// One lightweight pass to learn which metrics have no series, so rows can flag them with the
@@ -273,7 +282,7 @@ private struct MetricRow: View {
                 Text(metric.title)
                     .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text(metric.source == "apple-health" ? "Apple Health" : "Whoop")
+                Text(metric.sourceLabel)
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }

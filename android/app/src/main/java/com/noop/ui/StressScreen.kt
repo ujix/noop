@@ -835,7 +835,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.StressEmpty() {
 // the 3-stop stress gradient calm-blue → gold → burnt-orange, round caps) with a NEEDLE
 // swung to the value and a centred read-out (the 0–3 number + "of 3" caption + the band
 // word in gold). Clean and flat — a thin Material arc and a slim needle, no bloom/halo —
-// matching Aaron's "less glow" note. Mirrors the macOS Stress semicircle so the two
+// matching the maintainer's "less glow" note. Mirrors the macOS Stress semicircle so the two
 // platforms read identically; the StressRamp stays the semantic scale on the data
 // surfaces (strip / day line / totals / tiles) below.
 

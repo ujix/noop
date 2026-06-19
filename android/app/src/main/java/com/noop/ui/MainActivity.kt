@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,10 +70,18 @@ class MainActivity : ComponentActivity() {
             requestBlePermissions()
         }
 
+        // Re-arm the daily debug export (#510) so its schedule self-heals after a reboot or app update
+        // (WorkManager is KEEP, so this is a no-op when already scheduled, and cancels itself when the
+        // feature is off). Wrapped because a WorkManager hiccup must never block launch.
+        runCatching { DebugExportScheduler.reschedule(applicationContext) }
+
         // Load the Light/Dark/System + chart-colour preferences before first composition so the theme
         // and chart ramps are correct from the very first frame (no flash).
         AppearancePrefs.load(this)
         ChartStylePrefs.load(this)
+        // Decode the optional on-device profile photo (if set) before first composition so the Today
+        // header + Settings avatars show it from the first frame. No-op when no photo is set.
+        ProfileAvatarStore.load(this)
 
         setContent {
             NoopTheme {
@@ -312,6 +321,30 @@ object NoopPrefs {
         of(context).edit().putBoolean(KEY_ILLNESS_WATCH, enabled).apply()
     }
 
+    /** Cycle awareness (v5): read a coarse menstrual-cycle PHASE from the nightly skin-temperature
+     *  shift. OPT-IN, default OFF (manual-first ethos) — the Health hub's Cycle card only renders once
+     *  this is on. Awareness only; never contraception / fertility / diagnosis. */
+    const val KEY_CYCLE_TRACKING = "noop.cycleTracking"
+
+    fun cycleTracking(context: Context): Boolean =
+        of(context).getBoolean(KEY_CYCLE_TRACKING, false)
+
+    fun setCycleTracking(context: Context, enabled: Boolean) {
+        of(context).edit().putBoolean(KEY_CYCLE_TRACKING, enabled).apply()
+    }
+
+    /** Coach on-device signals (v5): when ON, the opt-in BYO-key Coach's grounding context may include a
+     *  SUMMARY-ONLY line of on-device correlations + Lab Book markers (no raw egress). A SECOND opt-in on
+     *  top of the existing "let the coach use my data" consent. Default OFF — keeps the anonymity posture. */
+    const val KEY_COACH_SIGNALS = "noop.coachSignals"
+
+    fun coachSignals(context: Context): Boolean =
+        of(context).getBoolean(KEY_COACH_SIGNALS, false)
+
+    fun setCoachSignals(context: Context, enabled: Boolean) {
+        of(context).edit().putBoolean(KEY_COACH_SIGNALS, enabled).apply()
+    }
+
     /** Last local day (ISO yyyy-MM-dd) an illness notification was posted — the once-a-day gate,
      *  persisted so the app-open and background-service call sites can't double-post. */
     const val KEY_ILLNESS_LAST_NOTIFIED_DAY = "noop.illnessLastNotifiedDay"
@@ -407,6 +440,13 @@ fun NoopRoot() {
     }
     var lastSeenChangelog by remember {
         mutableStateOf(prefs.getString(NoopPrefs.KEY_LAST_SEEN_CHANGELOG, "") ?: "")
+    }
+
+    // Seed the current What's New into the Updates inbox ONCE per version (idempotent — tracks the last
+    // seeded version), for onboarded users only so a brand-new user's first run isn't pre-populated. The
+    // bell in the Today header surfaces it; the inbox row deep-links to the full changelog read.
+    LaunchedEffect(onboarded) {
+        if (onboarded) UpdateStore.from(context).seedWhatsNewIfNeeded()
     }
 
     // Terms acknowledgment gate — over EVERYTHING (before onboarding/pairing/Bluetooth) until the

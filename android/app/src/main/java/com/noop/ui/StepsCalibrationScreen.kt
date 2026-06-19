@@ -18,6 +18,7 @@ import com.noop.data.WhoopRepository
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -90,6 +91,8 @@ fun StepsCalibrationScreen(
     var comparison by remember { mutableStateOf<List<StepsComparisonRow>>(emptyList()) }
     // A representative recent motion volume (median of the days we measured), seeding the live preview.
     var sampleMotion by remember { mutableStateOf<Double?>(null) }
+    // Flips true once the load pass has run, so the "no motion synced" note (#37) doesn't flash on first frame.
+    var loaded by remember { mutableStateOf(false) }
 
     // The slider's max anchors to whatever's in force with generous headroom, so a nudge either way is
     // reachable; a floor keeps it usable before any fit. Mirrors the macOS sliderMax.
@@ -102,6 +105,7 @@ fun StepsCalibrationScreen(
     // engine does (gravity over [localMidnight, +24h)) and run the public StepsEstimateEngine with the
     // live calibration. Reuses the engine, never invents a number, needs no extra storage.
     LaunchedEffect(Unit) {
+        loaded = true
         val coeff = if (profile.stepsManualCoefficient > 0) {
             profile.stepsManualCoefficient
         } else {
@@ -109,8 +113,17 @@ fun StepsCalibrationScreen(
         }
         if (coeff <= 0) return@LaunchedEffect
 
-        val phoneDays = vm.repo.appleDaily(WhoopRepository.APPLE_HEALTH_SOURCE, "0000-01-01", "9999-12-31")
-            .mapNotNull { row -> row.steps?.takeIf { it > 0 }?.let { row.day to it } }
+        // Phone step counts come from apple-health AND, for HC-only users, Health Connect (#37). Both are
+        // stored in appleDaily under their own source; union them with apple-health winning per day.
+        val stepsByDay = LinkedHashMap<String, Int>()
+        for (row in vm.repo.appleDaily(WhoopRepository.APPLE_HEALTH_SOURCE, "0000-01-01", "9999-12-31")) {
+            row.steps?.takeIf { it > 0 }?.let { stepsByDay[row.day] = it }
+        }
+        for (row in vm.repo.appleDaily(WhoopRepository.HEALTH_CONNECT_SOURCE, "0000-01-01", "9999-12-31")) {
+            row.steps?.takeIf { it > 0 }?.let { stepsByDay.putIfAbsent(row.day, it) }
+        }
+        val phoneDays = stepsByDay.entries
+            .map { it.key to it.value }
             .sortedByDescending { it.first }
 
         val cal = StepsEstimateEngine.Calibration(
@@ -149,6 +162,7 @@ fun StepsCalibrationScreen(
                 verticalArrangement = Arrangement.spacedBy(Metrics.sectionGap),
             ) {
                 ExplainerCard()
+                if (loaded && sampleMotion == null) NoMotionNote()
                 CurrentFitCard(profile)
                 ComparisonCard(comparison)
                 ManualAdjustCard(
@@ -236,6 +250,35 @@ private fun ExplainerCard() {
                 "On the days your phone also counted steps, NOOP learns how much your motion maps to " +
                     "steps, then applies that to the strap-only days. The more matching days it has, the " +
                     "more it trusts the estimate.",
+                style = NoopType.footnote,
+                color = Palette.textTertiary,
+            )
+        }
+    }
+}
+
+/** Shown when the strap has banked NO motion yet (sampleMotion == null) — the real reason a fresh
+ *  WHOOP 4.0 reads zero steps (#37 bringiton321). Steps come from the strap's synced motion history,
+ *  so without a backfill there's nothing to estimate from — calibration can't help until it syncs. */
+@Composable
+private fun NoMotionNote() {
+    NoopCard(padding = 20.dp, tint = Palette.metricAmber) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Filled.SyncProblem, contentDescription = null, tint = Palette.metricAmber, modifier = Modifier.size(20.dp))
+                Text("No motion synced yet", style = NoopType.headline, color = Palette.textPrimary)
+            }
+            Text(
+                "We're not seeing any motion from your strap yet. Steps are estimated from your WHOOP's " +
+                    "banked motion history — so your strap needs to sync that history before NOOP has " +
+                    "anything to count.",
+                style = NoopType.subhead,
+                color = Palette.textSecondary,
+            )
+            Text(
+                "Open NOOP near your strap and let it catch up (a full history sync can take a while on " +
+                    "first run). Once a day or two of motion lands, your step estimate and the calibration " +
+                    "below will start to fill in.",
                 style = NoopType.footnote,
                 color = Palette.textTertiary,
             )

@@ -162,15 +162,17 @@ public struct TrendChip: View {
     public init(text: String, color: Color = StrandPalette.textTertiary) {
         self.text = text; self.color = color
     }
-    private var symbol: String {
+    private var symbol: String? {
         let t = text.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("+") || t.hasPrefix("▲") || t.lowercased().hasPrefix("up") { return "arrow.up.right" }
         if t.hasPrefix("-") || t.hasPrefix("−") || t.hasPrefix("▼") || t.lowercased().hasPrefix("down") { return "arrow.down.right" }
-        return "minus"
+        // No sign → a plain magnitude (e.g. a workout's "874 kcal"), not a trend: show NO direction
+        // glyph. Previously this fell to "minus", whose leading dash read as a negative ("-874 kcal" — #41).
+        return nil
     }
     public var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: symbol).font(.system(size: 8, weight: .bold))
+            if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
             Text(text).font(StrandFont.captionNumber)
         }
         .foregroundStyle(color)
@@ -300,31 +302,27 @@ public struct SegmentedPillControl<T: Hashable>: View {
                         // white ink (so the light theme's selection matches its blue chrome, not gold).
                         .foregroundStyle(sel ? (scheme == .light ? Color.white : StrandPalette.goldDeepText)
                                              : StrandPalette.textTertiary)
-                        .frame(minWidth: 32)
-                        .padding(.vertical, 6).padding(.horizontal, 11)
+                        // Fill the segment height so the selected pill has EQUAL margins to the track
+                        // on every side. (The old compact pill inside a taller 44pt touch frame left
+                        // more vertical margin than horizontal — it read as off-centre.)
+                        .frame(minWidth: 32, maxHeight: .infinity)
+                        .padding(.horizontal, 12)
                         .background(
                             Capsule(style: .continuous)
                                 .fill(sel ? (scheme == .light
                                              ? AnyShapeStyle(StrandPalette.accent)
                                              : AnyShapeStyle(LinearGradient(gradient: StrandPalette.goldGradient, startPoint: .top, endPoint: .bottom)))
                                           : AnyShapeStyle(Color.clear))
-                                .shadow(color: sel ? (scheme == .light ? StrandPalette.accent.opacity(0.3) : StrandPalette.gold.opacity(0.4)) : .clear,
-                                        radius: sel ? 6 : 0, y: 1)
                         )
-                        // On iOS guarantee the ≥44pt touch target (height only — width is
-                        // already ≥54pt) without bloating the denser Mac control, then make
-                        // the whole area tappable so the transparent margin counts as a hit.
-                        #if os(iOS)
-                        .frame(minHeight: 44)
-                        #endif
-                        .contentShape(Rectangle())
+                        .contentShape(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .frame(height: 36)   // segment height; the pill fills it for an even inset
                 // Announce the active range to VoiceOver and give a non-colour cue.
                 .accessibilityAddTraits(sel ? .isSelected : [])
             }
         }
-        .padding(3)
+        .padding(4)
         .background(StrandPalette.surfaceInset, in: Capsule(style: .continuous))
         .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
@@ -399,8 +397,9 @@ public struct NoopPrimaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
                     .fill(LinearGradient(gradient: StrandPalette.goldGradient, startPoint: .topLeading, endPoint: .bottomTrailing))
             )
-            // The signature gold cast-shadow (0 10px 22px -8px gold@.6).
-            .shadow(color: StrandPalette.gold.opacity(pressed ? 0.25 : 0.6), radius: 14, x: 0, y: 8)
+            // A crisp, subtle NEUTRAL elevation — the gold cast-glow read as too much against the
+            // clean design, so it's a soft dark lift now, no bloom.
+            .shadow(color: .black.opacity(pressed ? 0.08 : 0.16), radius: 6, x: 0, y: 3)
             .opacity(pressed ? 0.9 : 1)
             .scaleEffect(pressed ? 0.98 : 1)
             .animation(StrandMotion.interactive, value: pressed)

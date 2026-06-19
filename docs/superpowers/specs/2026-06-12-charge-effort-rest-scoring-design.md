@@ -4,7 +4,7 @@
 **Rest** (sleep) — all out of 100, computed across WHOOP 4.0 and 5.0/MG, competitive with WHOOP's
 Recovery/Strain/Sleep while staying transparent and honest.
 
-**Approved:** 2026-06-12 (Aaron). Names = Charge/Effort/Rest. Scope = rebrand + rescale + enrich.
+**Approved:** 2026-06-12 (the maintainer). Names = Charge/Effort/Rest. Scope = rebrand + rescale + enrich.
 
 ## Principles
 

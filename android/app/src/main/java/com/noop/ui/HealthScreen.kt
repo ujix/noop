@@ -12,9 +12,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -41,6 +52,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -49,6 +61,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.analytics.Baselines
+import com.noop.analytics.IllnessSignalEngine
+import com.noop.analytics.V5HealthSignals
 import com.noop.analytics.FitnessAgeEngine
 import com.noop.analytics.VitalityEngine
 import com.noop.analytics.FitnessAgeReadiness
@@ -79,13 +93,23 @@ import kotlin.math.roundToInt
 // aggregates, so the "Vital Signs" grid is sourced from today's DailyMetric.
 
 @Composable
-fun HealthScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
+fun HealthScreen(
+    vm: AppViewModel,
+    onVitalClick: (String) -> Unit = {},
+    onOpenLabBook: () -> Unit = {},
+    onOpenFusedRecord: () -> Unit = {},
+) {
     val context = LocalContext.current
     val profile = remember { ProfileStore.from(context.applicationContext) }
     val live by vm.live.collectAsStateWithLifecycle()
+    val bpm by vm.bpm.collectAsStateWithLifecycle()
     val today by vm.today.collectAsStateWithLifecycle()
     // Full merged daily history — feeds the personal-baseline banding of the vitals grid.
     val days by vm.recentDays.collectAsStateWithLifecycle()
+    // v5 skin-temp suite engine results (Cycle / Body clock / Illness heads-up), recomputed each
+    // analytics pass and published by the ViewModel. Cycle awareness gates on its opt-in pref.
+    val v5Signals by vm.v5Signals.collectAsStateWithLifecycle()
+    val cycleEnabled by vm.cycleTrackingEnabled.collectAsStateWithLifecycle()
     val hrMax = profile.hrMax
 
     // Health Monitor shows live HR too, so it must keep the realtime stream on while it's visible —
@@ -96,7 +120,7 @@ fun HealthScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
         onDispose { vm.releaseRealtimeHr() }
     }
 
-    val displayHr = displayHr(live)
+    val displayHr = displayHr(bpm, live)
     val hasLiveHr = displayHr != null
 
     ScreenScaffold(
@@ -104,11 +128,19 @@ fun HealthScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
         subtitle = "Live vitals, streamed from the strap.",
     ) {
         if (today == null && !hasLiveHr) {
+            // Even with no history yet, a freshly-connected strap can be told to sync now (#364) — the
+            // manual "Sync now" + honest status sits above the empty state so it's always reachable.
+            SyncStatusSection(live = live, onSyncNow = { vm.syncNow() })
+            Spacer(Modifier.height(Metrics.selectorTopUp))
             HealthEmptyState()
         } else {
+            // Manual "Sync now" + honest sync status (#364) — the first section so the strap-history
+            // control is reachable above the live hero. Mirrors HealthView.swift's top Sync section.
+            SyncStatusSection(live = live, onSyncNow = { vm.syncNow() })
+            Spacer(Modifier.height(Metrics.selectorTopUp))
             // ScreenScaffold applies a 20dp arrangement gap between its direct children;
             // a small top-up reaches the section gap (28dp) used between macOS sections.
-            HeartRateSection(live = live, hrMax = hrMax)
+            HeartRateSection(live = live, hrMax = hrMax, bpm = bpm)
             Spacer(Modifier.height(Metrics.selectorTopUp))
             VitalsSection(
                 title = "Vital Signs",
@@ -124,11 +156,266 @@ fun HealthScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
             Spacer(Modifier.height(Metrics.selectorTopUp))
             FitnessAgeSection(vm = vm, days = days, profile = profile)
             VitalitySection(vm = vm, days = days, profile = profile)
+            // SKIN TEMPERATURE (v5 pillar) — Cycle awareness (opt-in), Body clock + an illness heads-up,
+            // each from a pure engine RESULT the ViewModel publishes. A section of Health, never its own
+            // destination (umbrella §2.4). Non-clinical observations about your own numbers.
+            Spacer(Modifier.height(Metrics.selectorTopUp))
+            SkinTempSuiteSection(
+                signals = v5Signals,
+                cycleEnabled = cycleEnabled,
+                onEnableCycle = { vm.setCycleTrackingEnabled(true) },
+            )
             // CONTRIBUTORS (README screen #5, recovery detail) — the signals behind recovery as
             // labelled progress bars in the shared stage/zone bar style, mirroring Today's section.
             Spacer(Modifier.height(Metrics.selectorTopUp))
             HealthContributorsSection(today)
+            // RECORDS & SOURCES (Swift parity) — deep-link rows into the local Lab Book and the
+            // "Your Data, Fused" record, so both are discoverable from Health, not just the drawer.
+            Spacer(Modifier.height(Metrics.selectorTopUp))
+            RecordsAndSourcesSection(
+                onOpenLabBook = onOpenLabBook,
+                onOpenFusedRecord = onOpenFusedRecord,
+            )
         }
+    }
+}
+
+// MARK: - Sync status + "Sync now" (#364)
+//
+// Manual "Sync now" control + honest sync status, mirroring HealthView.swift's SyncStatusSection (which
+// itself mirrors this screen's Android Sync-now button). Reads only LiveState (connection + backfill +
+// last-sync), so the ~1Hz HR hero doesn't drag it through re-renders. The button reaches the BLE engine's
+// gated entry point (vm.syncNow → WhoopBleClient.syncNow) — a no-op when no strap is connected or a sync
+// is already running, so it's safe regardless of state. The status line explains itself when no strap is
+// connected; while a sync runs it shows the shared in-progress note + live chunk count; otherwise it
+// shows when history last synced.
+
+@Composable
+private fun SyncStatusSection(live: LiveState, onSyncNow: () -> Unit) {
+    // The strap link is usable for a manual offload kick (matches WhoopBleClient.syncNow's own gate).
+    val canSync = live.connected && live.bonded && !live.backfilling
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader(
+            "Sync",
+            overline = "Strap history",
+            trailing = if (live.connected) (if (live.bonded) "Connected" else "Pairing…") else "Offline",
+        )
+
+        NoopCard(tint = Palette.chargeColor) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Status line: an in-progress note while syncing (with the live chunk count), an honest
+                // "not connected" pill, a last-synced read-out, else a "ready to sync"/"pairing" pill.
+                when {
+                    live.backfilling -> SyncingHistoryNote(chunks = live.syncChunksThisSession)
+                    !live.connected -> StatePill(
+                        title = "No strap connected",
+                        tone = StrandTone.Neutral,
+                        showsDot = false,
+                    )
+                    live.lastSyncAt != null -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Metrics.space8),
+                    ) {
+                        StatePill(title = "History synced", tone = StrandTone.Positive)
+                        Text(
+                            relativeAgo(live.lastSyncAt!!),
+                            style = NoopType.footnote,
+                            color = Palette.textSecondary,
+                        )
+                    }
+                    else -> StatePill(
+                        title = if (live.bonded) "Ready to sync" else "Pairing…",
+                        tone = StrandTone.Accent,
+                        showsDot = true,
+                        pulsing = !live.bonded,
+                    )
+                }
+
+                // "Sync now" — disabled unless connected+bonded and not already syncing; while syncing it
+                // shows an indeterminate spinner (total pending records are unknowable from the protocol).
+                OutlinedButton(
+                    onClick = onSyncNow,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = if (canSync) {
+                                "Sync now. Pulls your strap's stored history immediately, without waiting " +
+                                    "for the next automatic sync."
+                            } else if (live.backfilling) {
+                                "Sync now. A sync is already in progress."
+                            } else {
+                                "Sync now. Connect your strap first."
+                            }
+                        },
+                    enabled = canSync,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.accent),
+                ) {
+                    if (live.backfilling) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .padding(end = 4.dp),
+                            strokeWidth = 2.dp,
+                            color = Palette.accent,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.Sync,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .padding(end = 4.dp),
+                        )
+                    }
+                    Text(
+                        if (live.backfilling) "Syncing…" else "Sync now",
+                        style = NoopType.captionNumber,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                    )
+                }
+
+                Text(
+                    syncHelperText(live),
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                )
+            }
+        }
+    }
+}
+
+/** The helper line below the Sync-now button: explains the current state (syncing / offline / pairing /
+ *  ready), copy-matched to HealthView.swift's SyncStatusSection.helperText. */
+private fun syncHelperText(live: LiveState): String = when {
+    live.backfilling -> "Pulling your strap's stored history. This drains oldest-first; a deep backlog " +
+        "now continues automatically across passes instead of waiting between syncs."
+    !live.connected -> "Connect your strap to sync its stored history. Until then, only imported data " +
+        "shows here."
+    !live.bonded -> "Finishing the pairing handshake — Sync now becomes available once the strap is paired."
+    else -> "Syncs your strap's stored history right away, instead of waiting for the next automatic sync."
+}
+
+// MARK: - Records & sources (Swift parity) — discoverable deep-links into the on-device records
+//
+// Mirrors the Swift Health screen's "Records & sources" section: two clickable rows that route into
+// the Lab Book (your own bloods / BP / body numbers) and the fused multi-source record ("Your Data,
+// Fused"). Both live entirely on this phone, so the overline says so. Plain navigation rows in the
+// house NoopCard style with an icon, a title/subtitle and a trailing chevron, each carrying a single
+// combined contentDescription for screen readers.
+
+@Composable
+private fun RecordsAndSourcesSection(
+    onOpenLabBook: () -> Unit,
+    onOpenFusedRecord: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader("Records & sources", overline = "On this phone")
+        RecordRow(
+            icon = Icons.Filled.MenuBook,
+            tint = Palette.metricCyan,
+            title = "Lab Book",
+            subtitle = "Your bloods, BP and body numbers — kept private here.",
+            onClick = onOpenLabBook,
+        )
+        RecordRow(
+            icon = Icons.AutoMirrored.Filled.CompareArrows,
+            tint = Palette.accent,
+            title = "Your Data, Fused",
+            subtitle = "The best-sourced number per metric, across your bands.",
+            onClick = onOpenFusedRecord,
+        )
+    }
+}
+
+/** One navigation row in the Records & sources section: a tinted glyph, a title + subtitle, and a
+ *  trailing chevron, wrapped in a clickable NoopCard with a combined accessibility label. */
+@Composable
+private fun RecordRow(
+    icon: ImageVector,
+    tint: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    NoopCard(
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = "$title. $subtitle" },
+        padding = Metrics.space16,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Metrics.space12),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(Metrics.cornerSm))
+                    .background(tint.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.space2)) {
+                Text(title, style = NoopType.headline, color = Palette.textPrimary)
+                Text(subtitle, style = NoopType.footnote, color = Palette.textTertiary)
+            }
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = Palette.textTertiary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+// MARK: - Skin-temperature suite (v5 pillar) — a Health section
+//
+// Composes the locked SkinTempCardsScreen cards from the engine RESULTS the ViewModel publishes:
+//   • Cycle awareness — OPT-IN (default OFF). Shows the opt-in card until enabled, then the result card.
+//   • Body clock — rendered only when the engine returned a phase estimate (the activity-bin input pipe
+//     is a future source; until then it's silently absent rather than a faked card).
+//   • Illness heads-up — rendered only when the engine returned a non-quiet level, mirroring the existing
+//     amber-alert treatment; never a diagnosis.
+// Every card carries its own privacy + non-clinical copy; the section header keeps the umbrella framing.
+
+@Composable
+private fun SkinTempSuiteSection(
+    signals: V5HealthSignals.Snapshot?,
+    cycleEnabled: Boolean,
+    onEnableCycle: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader("Skin Temperature", overline = "From your nightly readings")
+
+        // Illness heads-up first when it has something to say (it's the most time-sensitive card).
+        signals?.illness?.let { illness ->
+            if (illness.level != IllnessSignalEngine.Level.QUIET) {
+                HeadsUpCard(result = illness)
+            }
+        }
+
+        // Cycle awareness: the opt-in card until enabled, then the live result.
+        if (!cycleEnabled) {
+            CycleAwarenessOptInCard(onEnable = onEnableCycle)
+        } else {
+            signals?.cycle?.let { CycleAwarenessCard(result = it) }
+        }
+
+        // Body clock: only when the engine produced an estimate (no faked card while the input pipe is empty).
+        signals?.bodyClock?.let { BodyClockCard(estimate = it) }
+
+        Text(
+            "Cycle phase, body-clock and illness heads-up are approximations computed on your device from " +
+                "your own nightly temperature, heart rate and HRV — observations about your own numbers, " +
+                "never a diagnosis. They never leave this phone.",
+            style = NoopType.footnote,
+            color = Palette.textTertiary,
+        )
     }
 }
 
@@ -612,7 +899,10 @@ fun VitalSignsScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
 // HR to display: the reported value when > 0, else derived from the latest R-R
 // interval in milliseconds (the strap streams R-R even when its HR field reads 0).
 
-private fun displayHr(live: LiveState): Int? {
+private fun displayHr(bpm: Int?, live: LiveState): Int? {
+    // #39: prefer the spike-filtered median (AppViewModel.bpm) over raw live.heartRate, which carries
+    // PPG harmonic spikes (real ~92 read as 170+). Raw / R-R are last-resort fallbacks.
+    if (bpm != null && bpm > 0) return bpm
     live.heartRate?.let { if (it > 0) return it }
     val lastRr = live.rr.lastOrNull()
     if (lastRr != null && lastRr > 0) return (60_000.0 / lastRr).roundToInt()
@@ -670,8 +960,8 @@ private fun synthesiseSeries(values: List<Double>): List<LiveHrSample> {
 // MARK: - Heart rate hero (live)
 
 @Composable
-private fun HeartRateSection(live: LiveState, hrMax: Int) {
-    val displayHr = displayHr(live)
+private fun HeartRateSection(live: LiveState, hrMax: Int, bpm: Int?) {
+    val displayHr = displayHr(bpm, live)
     val hasLiveHr = displayHr != null
     val derived = hrIsDerived(live)
     val fraction = hrFraction(displayHr, hrMax)

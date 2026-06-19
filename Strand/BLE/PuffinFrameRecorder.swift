@@ -18,6 +18,13 @@ final class PuffinFrameRecorder {
     /// Flush to disk every this-many frames so a crash/yank loses at most a handful of frames.
     private static let flushEvery = 25
 
+    /// Soft cap on the total size of the puffin-captures directory (#27). One file is written per app
+    /// launch and never trimmed, so without a cap the directory grows without bound — an experimental
+    /// capture toggle a 5/MG user left on reached 19 GB. After each flush, oldest files are evicted
+    /// (by filename, which is timestamp-sorted) until the total is back under the cap. Never deletes
+    /// the file the current session is still writing.
+    private static let directorySoftCapBytes = 50 * 1024 * 1024
+
     private weak var state: LiveState?
     private let buffer = PuffinCapture()
     private var sinceFlush = 0
@@ -60,8 +67,38 @@ final class PuffinFrameRecorder {
             try data.write(to: url, options: .atomic)
             sinceFlush = 0
             state?.puffinCaptureURL = url
+            // Bound on-disk growth (#27): evict oldest captures beyond the soft cap, never the
+            // file this session is still writing.
+            Self.evictOldCaptures(keeping: url)
         } catch {
             // Best-effort: a failed flush just means the next one rewrites the whole file.
+        }
+    }
+
+    /// Enforce the directory soft cap by deleting the oldest capture files (best-effort). Filenames are
+    /// `puffin-yyyyMMdd-HHmmss.json`, so lexicographic order is chronological — delete from the front
+    /// until the total is back under the cap. `keep` (the active session file) is never deleted.
+    private static func evictOldCaptures(keeping keep: URL) {
+        let fm = FileManager.default
+        guard let dir = try? captureDirectory() else { return }
+        guard let entries = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]) else { return }
+        // Sort oldest-first by name (timestamped). Pair each with its size up front.
+        let files = entries
+            .filter { $0.pathExtension == "json" }
+            .map { (url: $0, size: (try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
+            .sorted { $0.url.lastPathComponent < $1.url.lastPathComponent }
+        var total = files.reduce(0) { $0 + $1.size }
+        for file in files {
+            guard total > directorySoftCapBytes else { break }
+            if file.url == keep { continue }   // never delete the active session file
+            do {
+                try fm.removeItem(at: file.url)
+                total -= file.size
+            } catch {
+                // Best-effort: skip a file we couldn't remove; the next flush retries.
+            }
         }
     }
 

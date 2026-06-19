@@ -2,7 +2,7 @@
 
 All notable changes to NOOP. NOOP is an independent, experimental project — not the WHOOP app, and
 not affiliated with WHOOP. It reads a strap you own, on your own device, fully offline. Dates are
-approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/releases) page.
+approximate; downloads are on the [Releases](https://noop.fans/NoopApp/noop/releases) page.
 
 ## What to expect
 
@@ -16,6 +16,252 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 - **Everything stays on your device.** No account, no cloud, no sync.
 
 ---
+
+## 5.1.2 — design polish & cross-platform parity (all platforms)
+
+A refinement release focused on making iPhone, Mac and Android look and behave the same.
+
+- **A more consistent app across all three platforms.** The More page, the Updates inbox, the home cards and the menus now match — same layout, same styling, in light and dark.
+- **A tidier More page.** Everything's grouped under **Insights · Body · Data · App** in clean cards, one tap from the More tab. On iPhone the section headers are the app's tracked uppercase overlines (not a stock list); on Android the old pull-up sheet became a proper navigated page with the same grouping.
+- **A sharper Updates inbox.** White cards that stand out from a tinted sheet background (Android was white-on-white and looked flat), a filled-pill **Mark all read**, and the bell's unread badge no longer clips.
+- **Today vitals card** uses a real neutral card surface on Android instead of a faint wash.
+- **Mac:** the Support heart moved to the leading edge and the Updates bell to the trailing top-right of the window toolbar, separated.
+
+## 5.1.1 — Android design parity with iPhone & Mac (Android)
+
+An Android-only polish release that brings the Android app up to the iPhone/Mac design from 5.1.0 (iOS/macOS are unchanged and stay on 5.1.0).
+
+- **The home screen matches iPhone and Mac now.** One compact header row — avatar · ‹ Today › · bell · ＋ — replaces the old "Control Center" title, the separate logo bar and the standalone date pill. The hamburger menu and its navigation drawer are gone (they duplicated the **More** tab, which reaches every destination), and the four-tab bar floats above the gesture nav with proper breathing room.
+- **Cleaner rings.** The Charge / Effort / Rest rings no longer show a stray coloured dot on empty or calibrating states — Android's `Canvas` was rendering a near-zero round-capped arc as a full dot; it now draws the arc only above a real progress threshold, like iOS.
+- **Crisper, flatter, more consistent.** Neutral cards lose the gold-bevel tint for iOS's flat surface; display numerals are bold with the right tracking; numbers use tabular (non-monospace) figures; tiles match iOS height.
+- **Parity extras:** Health gained a **Sync now** section, Insights a **What moves you** shortcut, Trends an in-context **Export report** card, and Settings a dedicated **Profile photo** entry.
+
+## 5.1.0 — a cleaner home: refreshed design, a new inbox, your photo (all platforms)
+
+A design-refresh release. Same NOOP underneath — a tidier, crisper home, somewhere for everything new to land, and a touch of you on the screen.
+
+- **A cleaner home.** The bottom bar is now four tidy tabs — **Today · Trends · Sleep · More** — and the quick-action **+** has moved up to the top-right of your home screen, balancing your profile on the left. Same actions (start a workout, log your journal, breathe), much less clutter.
+- **A new Updates inbox.** Tap the **bell** in the top-right to see what's new — fresh readings and history that landed, what's-new notes, and any home cards you've tucked away. A small gold badge shows when there's something unread. Hit the **×** on a home card to send it to the inbox, and pull it back any time with **Restore to Today**.
+- **Make it yours — a profile photo.** Tap your profile (top-left) → **Settings → Profile photo** and choose a picture. It shows on your home screen and stays **only on your device** — NOOP is offline, so it's never uploaded.
+- **Cleaner, crisper design.** We blended the glass-and-material look, dialled back the glow across the whole app for sharper lines, evened up the spacing around the little pill toggles, and onboarding now shows up front that you can switch **Light · Dark · System** whenever you like (**Settings → Appearance**).
+- **Same look on every device.** The refreshed layout and approach land on Mac, iPhone and Android together.
+
+## 5.0.1 — stability & polish for v5 (all platforms)
+
+A refinement release that hardens the big v5 update — no behaviour changes, just making sure everything renders and reaches you cleanly.
+
+- **Fixed: overlapping text in several macOS panels.** A few of the new v5 sheets — Lab Book "Add a reading", Breathe, a workout's detail, the Trends report, and the "Your Data, Fused" compare — could open with their title, fields and lists stacked on top of one another (a macOS sheet hosting a scroll view needs a definite height). They now lay out as clean, scrollable forms. The same class of issue is fixed across every affected screen.
+- **Fixed: the Lab Book marker picker only showed the first handful of markers** with no way to scroll to the rest — all ~30 are reachable now.
+- **Polish:** Breathe's pace buttons no longer truncate on a narrow phone (they scroll); the Insights "What Moves You" toggles no longer crowd their headers; the Rhythm "extra / skipped" figure is shown in a calm tone instead of the alarm colour (it's a picture, never a verdict).
+- **Android parity:** the Breathe screen now offers your locked Resonance pace and uses the calm Rest colour world; the Health screen gained quick links to Lab Book and Your Data, Fused; and several values now ellipsize instead of clipping mid-character.
+
+## 5.0.0 — v5: the raw-signal release (all platforms)
+
+**The biggest release in NOOP's history.** Everyone else shows you a score their cloud computed, behind a
+subscription. NOOP reads your strap's *raw signals* — beat-to-beat R-R timing, red/IR PPG, 3-axis motion,
+skin temperature — and does all the maths **on your own device, free and offline**. v5 turns NOOP into a
+raw-signal platform: it reasons from those signals, computes everything locally, and is the only one of
+these apps that can *act on your body* through the strap's haptic motor. Seven new pillars, plus a tidier
+home — every screen now lives under **five places: Today · What Moves You (Insights) · Health · Devices &
+Sources · Settings**, so nothing is buried. Nothing about your data or your history changed; it just has a
+coherent home and a lot more to show you. Everything below is on-device, opt-in, and honest about its
+limits.
+
+- **Haptic biofeedback — "the strap that breathes you down."** The flagship. NOOP can now *act* on your
+  nervous system, not just measure it. Your wrist motor paces your breathing with the screen off, and you
+  get a measured outcome.
+  - **Resonance breathing.** Find your personal calm pace (the breathing rate, roughly 4.5–7 breaths/min,
+    that gives your heart its biggest healthy swing): **Breathe → Resonance → "Find your resonance pace"**,
+    then pick the **Full sweep (~13 min)** or **Quick sweep (~7 min)**. NOOP paces you through candidate
+    paces, reads which one your body responds to most, and locks it. After that, the Breathe session uses
+    your locked pace, and you get the usual "+X% vs start · peak Y ms" outcome.
+  - **"Calm me · 3 min."** On a stressed moment (the Stress screen / the check-in card), tap **Calm me ·
+    3 min** for a felt metronome that buzzes a few beats below your live heart rate so your heart can drift
+    down toward it. Honest about it: if your HR doesn't fall, it says so — no fake win.
+  - **Passive stress check-ins (haptic).** Optional, **off by default**: **Settings → Automations → "Stress
+    check-ins (haptic)"**. When your HRV dips while you're *still* (not exercising), NOOP offers a one-minute
+    breathing cue with a single confirming buzz and a dismissible card — never an alarm, never a diagnosis.
+    All three layers are PPG-derived estimates, relaxation guidance, not a medical treatment.
+- **What Moves You — your personal n-of-1 insights.** Competitors show population averages ("alcohol
+  typically lowers recovery"). NOOP computes the effect **on your own data**. A ranked, **lag-aware** feed
+  ("what actually moves *your* Charge", with a "next morning / same day" chip and a confidence pill — Solid
+  / Building / Calibrating) replaces the old behaviour list. Log **alcohol** or **late caffeine** with an
+  *amount* and NOOP fits a personal **dose-response** curve (shrinking toward typical patterns until you've
+  logged enough nights, then becoming truly yours). In the evening, the **damage forecast** on Today tells
+  you what one more drink tends to cost tomorrow's Charge, with an honest range. Everything is framed as
+  "patterns in your own data" — association, never cause. Open **What Moves You** (the wand entry in the
+  sidebar / Insights).
+- **Skin-temperature suite — three features off one underused signal.** WHOOP already streams skin
+  temperature every night; NOOP already banks it. v5 reasons from it three ways, **all on-device, free**:
+  - **Cycle awareness (opt-in).** A coarse menstrual-cycle phase (Follicular / Peri-ovulatory / Luteal) read
+    from your nightly skin temperature, corroborated by your resting-HR and HRV pattern. Turn it on in
+    **Health → Skin temperature → "Turn on cycle awareness"**. It is **awareness only — not contraception,
+    not a fertility predictor, not a medical service** — and a period estimate is always a *window*, never a
+    hard date. This is the kind of data a cloud product can't promise stays private; NOOP's can, because it
+    physically never leaves your device.
+  - **Body clock.** A jet-lag / shift-work helper that estimates your body-clock phase from your nightly
+    temperature low and your rest-activity rhythm ("about 25 min later than your schedule") and gives a
+    light + sleep-timing plan for a trip or new shift. Light and sleep timing only — never supplements.
+  - **Heads-up (illness early-warning).** The old illness banner cried wolf after a night out. The new one
+    scores resting-HR, HRV, skin-temp and respiration anomalies *and cross-checks your journal* — if you
+    logged alcohol, a sauna, stress or travel, it downgrades and tells you why ("Probably not illness — you
+    logged a few drinks"). It always shows the *why* and what it ruled out, and never names a condition:
+    "On-device estimate — not a diagnosis." Toggle under **Settings → Automations → "Illness
+    early-warning"**.
+- **Your Data, Fused — one honest record across your bands.** If you wear more than one device — a WHOOP
+  plus a Mi Band, plus Apple Health / Health Connect — NOOP now fuses them into one record **on your
+  device**, picking the best source per metric (the band that *counts* steps beats the strap's estimate; the
+  better stager wins for sleep), naming the source on every number, and **flagging disagreement instead of
+  silently averaging it** ("Sleep 7h 12m · from WHOOP · ⚠ Apple Health says 6h 40m — tap to compare"). It
+  never claims a number is "correct" — only best-sourced and fully transparent. A single-WHOOP setup just
+  shows a clean plain record. Open **Your Data, Fused** from **Health** or Data Sources. The privacy-first
+  inverse of a cloud aggregator: nothing leaves the device.
+- **Lab Book — your own private health logbook.** A place to keep the numbers you already own — bloods,
+  blood pressure, scan values, body measurements, doctor's-visit notes — typed in by hand or imported from a
+  CSV, and lined up against your wearable signals. Each marker shows its trend; **"Compare with a signal"**
+  lines a marker (say LDL) up against resting HR, HRV, sleep or Charge over a 7/14/30-day window, with the
+  same restrained "tends to" language used elsewhere. The framing is load-bearing and non-negotiable: **Lab
+  Book is a private notebook, not a medical service.** NOOP *stores and lines up the numbers you enter
+  yourself* — it does **not** test you, read your results, decide whether a value is "normal/high/low", or
+  diagnose anything; any reference range shown is exactly what you typed from your own report. Your records
+  **never leave your device**; because NOOP is an independent app you run yourself (not a healthcare
+  provider) it is **not "HIPAA-covered"** — the protection is that the data is local-only and yours. Always
+  rely on your doctor or pharmacist to interpret results. Open **Health → Lab Book**.
+- **Rhythm (experimental) — a picture of your beat-to-beat timing.** On *every* strap (4.0 and 5/MG), NOOP
+  can draw a **Poincaré scatter** of your beat-to-beat intervals with plain descriptive stats (SD1, SD2,
+  the SD1:SD2 ratio) and a calm categorical read — *Rhythm — steady* / *Some occasional extra or skipped
+  beats* / *Your rhythm varied more than usual*. **It is a visualisation, not a verdict: not an ECG, not a
+  diagnosis, not a medical device, and it cannot detect, rule out or monitor any heart condition.** Variation
+  in beat timing is normal and often completely benign. It's **off by default** behind a consent screen you
+  must read and tick: **Settings → Rhythm → "Turn on Rhythm"**. No alarms, no red, no condition names — by
+  design.
+- **A smarter, still-private AI Coach.** The opt-in **bring-your-own-key** Coach can now optionally reason
+  over your on-device patterns (recovery drivers, your discovered correlations) and your Lab Book markers —
+  and tell you *which* of your numbers it read. The privacy line holds exactly as before: nothing leaves
+  until you've added your own key, switched consent on, and asked a question; only a **compact text summary**
+  of computed values is sent to the provider *you* chose — never your raw R-R, PPG or motion. Turn the
+  deeper context on with **"Also share my patterns & Lab Book"** in Coach (off by default). As always, the
+  Coach is the only place NOOP touches AI, it's your key and your choice of provider, and the app stays
+  offline everywhere else.
+
+**Honest, as ever.** WHOOP 4.0 is the supported path; deeper 5/MG metrics are still being figured out.
+Skin-temp estimates, resonance detection, the haptic-paced wake, and Rhythm are explicitly experimental and
+build over a week or two of wear. Nothing here is medical; nothing is a diagnosis; nothing leaves your
+device. Internal data keys are unchanged, so years of history and every import keep working. Engines are
+unit-tested with Swift↔Kotlin parity locked across macOS, iOS and Android.
+
+---
+
+## 4.9.1 — More realistic calories + import, chart & sideload fixes
+
+- **More realistic daily calories (all platforms).** The all-day energy estimate read high — it
+  credited ordinary daytime heart rate at exercise intensity. The gross-exercise rate now only kicks
+  in at genuine exertion (≥ 50% heart-rate reserve, up from 30%), so daily burn reads closer to
+  reality. Detected/manual workouts are unchanged. (Community-reported.)
+- **Health Connect workouts show on the Today graph (Android).** A workout imported from Health
+  Connect now gets its marker on the Today heart-rate graph, like recorded and manual workouts.
+- **Fixed WHOOP-import day shift (Android).** Importing a WHOOP export could file a night's sleep on
+  the wrong day (a day early) and split it across two days — it now keys to the correct wake-day.
+- **Honest Smart-alarm wording (iPhone/Mac).** The Smart-alarm card now states up front that a
+  strap-driven wake is experimental and unverified on WHOOP 4.0 / 5/MG — keep a backup alarm.
+- **iPhone sideload fix.** The AltStore/SideStore source no longer fails with "given data not valid
+  JSON" — the install docs and source pointed at the dead GitHub host; they now use noop.fans.
+
+---
+
+## 4.9.0 — Steadier heart rate + a stack of fixes
+
+- **Steadier live heart rate (all platforms).** The Health tab and the macOS menu bar now show the
+  same spike-filtered reading as the Live screen, so a one-off optical sensor blip no longer flashes a
+  wild number like 170+. (Thanks @ryanbr and @bringiton321 — #39.)
+- **Deleted sleep stays deleted (Android).** A sleep session you delete is now recorded with a durable
+  tombstone, so it no longer reappears after the next on-device recompute. (Thanks @ryanbr and
+  @pikapik487 — #33.)
+- **Step calibration finds your phone steps (Android).** Calibration now reads your phone's step count
+  from both Apple Health and Health Connect imports — previously it read the wrong store and could miss
+  them entirely, leaving you stuck on "Not calibrated". (Thanks @pikapik487 and @bringiton321 — #37.)
+- **Homebrew install fixed (macOS).** `brew install` works again — the tap command now points at the
+  project's self-hosted home. The old `brew install --cask noopapp/noop/noop` shorthand resolved to a
+  host that no longer serves the tap; use `brew tap noopapp/noop https://noop.fans/NoopApp/homebrew-noop
+  && brew install --cask noop`. (Thanks @tonyjacked — #44.)
+
+---
+
+## 4.8.0 — On-demand HRV, a haptic clock, sleep marks & more (all platforms)
+
+- **New: take an HRV reading on demand.** An "HRV reading" button on the Live screen captures about 60
+  seconds of your heart's beat-to-beat timing and gives you a single RMSSD reading right there — sit
+  still, breathe normally, and watch it settle. Saved alongside the rest of your data. (#127.)
+- **New: feel the time — Haptic Clock.** Your strap can now buzz out the current time: long buzzes for
+  tens, short for units, hours then minutes. On iPhone/Mac, set a strap double-tap to "Buzz the time"
+  under Automations; on Android there's a "Buzz the time on your strap" button in Settings →
+  Diagnostics. (#460.)
+- **New: tap to mark sleep.** Two buttons on the Sleep screen — "Going to sleep" and "I'm awake" — log
+  a timestamped mark so you keep your own record of when you turned in and woke up. (#461.)
+- **New: scheduled debug export (Android).** Turn on a daily auto-export of your strap log at a time
+  you choose, written with timestamped filenames — handy for attaching to a bug report. (Thanks
+  @maddognik — #510.)
+- **Clearer steps screen on a WHOOP 4.0.** If your strap hasn't synced any motion yet, the Steps
+  calibration screen now explains why it's empty — it needs your strap's banked motion history to sync
+  first. (Thanks @bringiton321 — #37.)
+
+---
+
+## 4.7.0 — Mi Band import + a big WHOOP 4.0 sleep fix (all platforms)
+
+- **New: import a Xiaomi Mi Band.** Bring a Mi Band / Smart Band 8, 9 or 10's full history — steps,
+  heart rate, resting HR, sleep stages + hypnogram, SpO₂, stress and sleep score — straight from the
+  Mi Fitness app's on-device database. Fully offline (no Bluetooth, no Xiaomi account). It gets a
+  dedicated page and shows up across Explore, Compare and Correlations. (Thanks to @matt — #35.)
+- **Fixed: WHOOP 4.0 sleep tracking.** A 4.0 night is rebuilt from "clumped" motion (dense bursts split
+  by long dropouts); the detector was shredding those nights at each dropout into fragments it threw
+  away — giving ~0 sleep or a night split in half with the wrong start. It now bridges across the
+  dropouts (vouched by heart rate) into one correct night. (Thanks @ryanbr — #28, #33.)
+- **Fixed:** a workout's calories rendered with a trend arrow that read as a minus sign ("-874 kcal");
+  plain magnitudes now show no arrow. (Thanks @Dumbledodge — #41.)
+- **Fixed:** tapping a metric in Explore on iPhone no longer flashes the detail and bounces back. (#38.)
+- **Cleaner Settings on a WHOOP 4.0** — the 5/MG-only experimental controls are hidden when you're on a
+  4.0 (model detected automatically). (#22.)
+- **Faster overnight catch-up** — after the phone's been off, a strap that drip-feeds its history drains
+  back-to-back instead of stalling between chunks. (#25.)
+- **Bounded local storage** — experimental raw-capture buffers are now size-capped. (#27.)
+- **Apple Health body composition** — NOOP reads weight, body-fat %, lean mass and BMI on iPhone. (#20.)
+- Fixed the misleading "turn on 5/MG raw capture" message a WHOOP 4.0 user could get stuck on. (Thanks
+  @ryanbr — #32.)
+
+## 4.6.4 — Round rings (Android)
+
+- **Fixed:** on the new Today screen, the **Effort** ring could render as a squashed oval — the three
+  score rings didn't quite fit the row width, so the last one got pinched horizontally. The rings are
+  now sized to fit (and the ring component draws a true circle even in a tight box), so all three are
+  perfect circles on every screen size. (Android.)
+
+## 4.6.3 — The new Today screen comes to Android
+
+- **Android catch-up.** v4.6.2 brought the WHOOP-style Today hero to iPhone and Mac, but Android only
+  got the new ring *style* inside the old layout — so it didn't actually look like the new design. This
+  finishes the job: Android now leads with the **three score rings (Charge centred and enlarged, Rest and
+  Effort flanking)** over the scenic backdrop, the old big gold recovery ring is gone, the Support heart
+  moved to the top bar, and the HRV / Resting HR / Respiratory rows sit just below — matching iOS & macOS.
+  (Android only; iPhone and Mac were already on this layout in 4.6.2.) Thanks to the folks on Reddit who
+  flagged that Android still looked different.
+
+## 4.6.2 — A bolder Today screen (all platforms)
+
+- **The Today scores got a glow-up.** Charge, Effort and Rest now ride on crisp, full-circle gauges
+  that sweep in and count up — a cleaner, bolder at-a-glance read on iPhone and Android. (Thanks to
+  @unruffled688 for the iOS redesign — #23.)
+- **Fixed:** the **Releases** links in the README and docs pointed at a path that 404'd on the new
+  home — they now go straight to the downloads page. (#26)
+
+## 4.6.1 — NOOP has a new home (all platforms)
+
+- **NOOP now lives at [noop.fans](https://noop.fans/NoopApp/noop).** After the project's GitHub was
+  taken offline, NOOP moved to its own independent home — code, releases, the wiki and issues.
+  **Settings → About** now links straight there, and **Check for updates** reads from the new home (if
+  GitHub ever comes back it will be kept as a mirror). Nothing on your device changed and everything
+  keeps working — this just points the app at where the project lives now. Keeping it online costs
+  real money, so if NOOP is useful to you, please consider a donation. #KeepNOOPAlive
 
 ## 4.6.0 — Editable naps, richer Trends report, better debug export (all platforms)
 
@@ -183,18 +429,18 @@ A fix release following a full code review of the v4 line.
 
 - **Today's Effort now updates live through the day.** The Effort ring recomputes over today's heart rate
   as it happens (midnight → now), instead of showing yesterday's completed-day value — or a stale 0.0 early
-  in the morning — until the next full re-score. Thanks @rad182 ([#402](https://github.com/NoopApp/noop/issues/402)).
+  in the morning — until the next full re-score. Thanks @rad182 ([#402](https://noop.fans/NoopApp/noop/issues/402)).
 - **Editing a sleep time can't scramble the night any more.** The wake picker keeps the night on its own
   day, so correcting a bed/wake time re-derives that night's stages cleanly instead of splitting the
   corrected block and its totals across two days. Resting-HR + HRV day-bucketing was also aligned across
-  Mac, iPhone and Android. Thanks @ujix ([#406](https://github.com/NoopApp/noop/issues/406)).
+  Mac, iPhone and Android. Thanks @ujix ([#406](https://noop.fans/NoopApp/noop/issues/406)).
 - **Late nights and long lie-ins are captured** — the sleep-detection window was widened so a wake after
-  noon isn't cut short. Thanks @ujix ([#425](https://github.com/NoopApp/noop/pull/425)).
+  noon isn't cut short. Thanks @ujix ([#425](https://noop.fans/NoopApp/noop/pull/425)).
 - **Smart alarm is now honestly flagged experimental.** The strap acknowledges the alarm, but a
   strap-driven wake hasn't been verified firing yet — on WHOOP 4.0 *or* 5/MG — so the app asks you to keep
-  a backup alarm while we confirm the exact firmware buzz pattern. Thanks Kaliarti ([#428](https://github.com/NoopApp/noop/issues/428)).
+  a backup alarm while we confirm the exact firmware buzz pattern. Thanks Kaliarti ([#428](https://noop.fans/NoopApp/noop/issues/428)).
 - **Android: rename your WHOOP's Bluetooth name** — brings Android up to the iPhone/Mac feature. Thanks
-  @cbarrado ([#422](https://github.com/NoopApp/noop/pull/422)).
+  @cbarrado ([#422](https://noop.fans/NoopApp/noop/pull/422)).
 - **Polish from the review:** your Vitality breakdown now reconciles exactly with the Body Age number it
   explains; the new Age cards always compute on Android (the age control is bounded like iPhone/Mac);
   renaming no longer spins forever if your strap doesn't answer; live workout detection now covers the
@@ -868,7 +1114,7 @@ A large batch of fixes from reported issues and community contributions.
   one button, only when the strap is **worn and bonded**. It does write to the strap, but it's
   **reversible** (it only changes which data the strap emits) and is the same thing the official app does.
   Experimental: it may do nothing on your firmware yet. If you own a 5/MG, turning it on and sharing your
-  strap log on [#174](https://github.com/NoopApp/noop/issues/174) is exactly what we need to finish 5.0/MG
+  strap log on [#174](https://noop.fans/NoopApp/noop/issues/174) is exactly what we need to finish 5.0/MG
   support. **iPhone/Android only** — a Mac can't write to a 5/MG. Built on the public protocol work of
   **judes.club**, **Asherlc/dofek** and **b-nnett/goose**.
 
@@ -891,7 +1137,7 @@ A large batch of fixes from reported issues and community contributions.
   blocks showed only one — the rest were silently hidden. All blocks are now read from **both** sources,
   and a split day reads as **one night**: totals summed, the real gap between blocks preserved in the
   hypnogram, the "N nights ago" label counting days (not blocks), and a cross-midnight night showing its
-  span ("Fri 13 → Sat 14 Jun"). Implemented from [PR #173](https://github.com/NoopApp/noop/pull/173) —
+  span ("Fri 13 → Sat 14 Jun"). Implemented from [PR #173](https://noop.fans/NoopApp/noop/pull/173) —
   thanks **@FrostDev7**. (Android's day totals were already correct; its per-day grouping follows.)
 
 ---

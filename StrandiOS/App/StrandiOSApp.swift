@@ -51,6 +51,10 @@ struct StrandiOSApp: App {
                 .environmentObject(model.coach)
                 .environmentObject(health)
                 .environmentObject(router)
+                .environmentObject(UpdateStore.shared)
+                // v5 L3: the shared stress check-in nudge surface, so the Breathe screen's passive
+                // card observes the SAME instance the central detector (AppModel.evaluateStress) posts to.
+                .environment(\.stressNudgeCenter, model.stressNudgeCenter)
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)
                 .chartStyle(chartStyleRaw)
                 // Dynamic Type now scales the prose/label roles (StrandFont). Cap the upper end so the
@@ -169,7 +173,12 @@ private struct iOSRootView: View {
         // The Terms gate must stay "over everything" — don't pop What's New on top of it after a
         // combined terms+version update. Gate on terms being current, and re-check when they're
         // accepted (onAppear already fired before acceptance), so What's New shows right after.
-        .onAppear { showWhatsNewIfDue() }
+        .onAppear {
+            showWhatsNewIfDue()
+            // Seed the current What's New into the Updates inbox (idempotent per version) so the bell
+            // collects it even if the user dismisses the auto sheet.
+            UpdateStore.shared.seedWhatsNewIfNeeded()
+        }
         .onChange(of: acceptedTerms) { _, _ in showWhatsNewIfDue() }
     }
 

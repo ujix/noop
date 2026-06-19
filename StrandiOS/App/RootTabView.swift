@@ -15,8 +15,9 @@ struct RootTabView: View {
     @State private var quickAction: QuickAction?
     /// Presents the Devices manager (pair / switch bands) when a screen asks the shell to open it.
     @State private var showDevices = false
-    /// Drives the FAB press-state (gentle scale, dimmed gold shadow) — design-system feedback.
-    @State private var fabPressed = false
+    /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
+    /// when a hub row deep-links to it via NavRouter. nil = closed.
+    @State private var routedPillar: NavRouter.Destination?
     /// Selected tab — bound so tab switches can crossfade (README §Motion: ~240ms opacity swap
     /// between tab roots, calm easing). Defaults to Today.
     @State private var selectedTab: Int = 0
@@ -40,22 +41,22 @@ struct RootTabView: View {
         // raised gold FAB is overlaid on top, bottom-centre, floating ~20pt above the bar (a
         // native TabView can't host a centre item that overflows the bar, so we float it).
         ZStack(alignment: .bottom) {
-            // Four everyday tabs flanking the raised centre FAB. The FAB sits in the gap between
-            // Trends and Sleep (no tab is buried under it). Live (real-time HR) is a "watch it now"
-            // action, so it lives in the FAB's quick-action sheet and the More list — not a tab.
+            // A custom floating bar — two frosted "glass" islands with the gold action button nested
+            // cleanly in the gap between them — replaces the native tab bar: no overlap, no glow. The
+            // native TabView still drives content + per-tab nav state; only its bar is hidden.
             TabView(selection: $selectedTab) {
-                tab(TodayView(), "Today", "circle.hexagongrid.fill").tag(0)
-                tab(TrendsView(), "Trends", "chart.xyaxis.line").tag(1)
-                tab(SleepView(), "Sleep", "bed.double.fill").tag(2)
+                tab(TodayView(), "Today", "square.grid.2x2").tag(0)
+                tab(TrendsView(), "Trends", "chart.line.uptrend.xyaxis").tag(1)
+                tab(SleepView(), "Sleep", "bed.double").tag(2)
                 moreTab.tag(3)
             }
             .tint(StrandPalette.accent)
+            .toolbar(.hidden, for: .tabBar)
             // Tab crossfade — README §Motion: ~240ms opacity swap between tab roots, global calm
-            // easing cubic-bezier(0.22,1,0.36,1). The native bar/gestures are untouched; the
-            // animation only governs how the selected root settles in.
+            // easing cubic-bezier(0.22,1,0.36,1).
             .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
 
-            centreFAB
+            FloatingTabBar(selection: $selectedTab)
         }
         .task { await repo.refresh() }
         // Quick-action sheet presents with the calm easing (~0.42s) per the README sheet spec —
@@ -69,50 +70,69 @@ struct RootTabView: View {
         .sheet(isPresented: $showDevices) {
             devicesScreen
         }
-        // Honour a router request to open Devices, then clear it so the same tap can fire again later.
+        // v5 pillar deep-links (Insights hub / Lab Book / fused record / Rhythm) present as a sheet in
+        // their own nav stack — the same idiom the quick-action + Devices screens use on iPhone.
+        .sheet(item: $routedPillar) { dest in
+            pillarScreen(dest)
+        }
+        // Honour a router request: Devices keeps its dedicated sheet; the v5 pillars route through the
+        // shared pillar sheet. Cleared so the same tap can fire again later.
         .onChange(of: router.requestedDestination) { _, dest in
-            if dest == .devices {
+            switch dest {
+            case .devices:
                 showDevices = true
                 router.requestedDestination = nil
+            case .insightsHub, .labBook, .fusedRecord, .rhythm:
+                routedPillar = dest
+                router.requestedDestination = nil
+            case .trends:
+                // Trends is a primary tab on iPhone (not a pillar sheet) — switch to it.
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
+                router.requestedDestination = nil
+            case nil:
+                break
+            }
+        }
+        // A screen's top-bar "+" routes here: open the quick-action sheet, then clear the flag.
+        .onChange(of: router.quickActionsRequested) { _, req in
+            if req {
+                withAnimation(Self.sheetEase) { quickAction = .menu }
+                router.quickActionsRequested = false
+            }
+        }
+    }
+
+    /// A routed v5 pillar screen wrapped in its own nav stack + Done button (mirrors `quickScreen`).
+    @ViewBuilder
+    private func pillarScreen(_ dest: NavRouter.Destination) -> some View {
+        NavigationStack {
+            Group {
+                switch dest {
+                case .insightsHub: InsightsHubView()
+                case .labBook: LabBookView()
+                case .fusedRecord: FusedRecordHost()
+                case .rhythm: RhythmHost(onClose: { routedPillar = nil })
+                case .devices: DevicesView()
+                // .trends is never presented as a pillar sheet on iPhone (it's a primary tab — the
+                // requestedDestination handler switches `selectedTab` instead), but the switch must stay
+                // exhaustive. Fall back to Trends inside the sheet host if it ever arrives here.
+                case .trends: TrendsView()
+                }
+            }
+            .background(StrandPalette.surfaceBase.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(StrandPalette.surfaceBase, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { routedPillar = nil }
+                        .foregroundStyle(StrandPalette.accent)
+                }
             }
         }
     }
 
     /// Calm-easing curve (cubic-bezier(0.22,1,0.36,1)) at the README sheet-present duration.
     private static let sheetEase = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.42)
-
-    // MARK: - Centre FAB
-
-    /// The README "Tab bar" signature: a 46pt gold-gradient circle raised ~20pt above the bar,
-    /// goldDeepText "+" glyph, FAB shadow `0 8 18 -6 gold@.7`. Tapping opens the quick-action sheet.
-    private var centreFAB: some View {
-        Button {
-            withAnimation(Self.sheetEase) { quickAction = .menu }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(StrandPalette.goldDeepText)
-                .frame(width: 46, height: 46)
-                .background(
-                    Circle()
-                        .fill(LinearGradient(gradient: StrandPalette.goldGradient,
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-                )
-                // Spec FAB shadow: 0 8 18 -6 gold@.7 (the -6 spread ≈ a tight radius on a 46pt disc).
-                .shadow(color: StrandPalette.gold.opacity(fabPressed ? 0.3 : 0.7), radius: 9, x: 0, y: 8)
-                .scaleEffect(fabPressed ? 0.94 : 1)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Quick actions")
-        .accessibilityHint("Start a workout, log your journal, or breathe")
-        // Raised ~20pt above the bar; the bottom inset keeps it clear of the home indicator.
-        .offset(y: -20)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if !fabPressed { withAnimation(StrandMotion.interactive) { fabPressed = true } } }
-                .onEnded { _ in withAnimation(StrandMotion.interactive) { fabPressed = false } }
-        )
-    }
 
     // MARK: - Quick-action sheet
 
@@ -179,67 +199,137 @@ struct RootTabView: View {
     private func tab<V: View>(_ view: V, _ title: LocalizedStringKey, _ icon: String) -> some View {
         view
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
+            .toolbar(.hidden, for: .tabBar)   // we draw our own FloatingTabBar
             .tabItem { Label(title, systemImage: icon) }
     }
 
+    // The "More" tab is the app's catch-all index. It was a plain SwiftUI `List` with system large-title
+    // + system title-case section headers, so it didn't match any other page (which all use ScreenScaffold
+    // + SectionHeader's UPPERCASE overline + the 28pt section rhythm). Rebuilt on the shared page chrome:
+    // ScreenScaffold for the title1 "More" + subtitle, a `SectionHeader` overline per group, and the group's
+    // rows in a single grouped NoopCard with hairline dividers — the same row idiom Settings/Health use.
     private var moreTab: some View {
         NavigationStack {
-            List {
-                Section("Insights") {
-                    link("Intelligence", "brain.head.profile") { IntelligenceView() }
-                    link("Coach", "sparkles") { CoachView() }
-                    link("Insights", "lightbulb.fill") { InsightsView() }
-                    link("Explore", "square.grid.2x2.fill") { MetricExplorerView() }
-                    link("Compare", "rectangle.split.2x1.fill") { CompareView() }
+            ScreenScaffold(title: "More", subtitle: "Everything else, one tap away") {
+                moreSection("Insights") {
+                    MoreRow("What Moves You", "wand.and.sparkles") { InsightsHubView() }
+                    MoreRow("Intelligence", "brain.head.profile") { IntelligenceView() }
+                    MoreRow("Coach", "sparkles") { CoachView() }
+                    MoreRow("Insights", "lightbulb.fill") { InsightsView() }
+                    MoreRow("Explore", "square.grid.2x2.fill") { MetricExplorerView() }
+                    MoreRow("Compare", "rectangle.split.2x1.fill") { CompareView() }
                 }
-                Section("Body") {
-                    link("Live", "waveform.path.ecg") { LiveView() }
-                    link("Workouts", "figure.run") { WorkoutsView() }
-                    link("Health", "heart.text.square.fill") { HealthView() }
-                    link("Stress", "bolt.heart.fill") { StressView() }
-                    link("Breathe", "wind") { BreathingView() }
-                    link("Intervals", "timer") { IntervalTimerView() }
+                moreSection("Body") {
+                    MoreRow("Live", "waveform.path.ecg") { LiveView() }
+                    MoreRow("Workouts", "figure.run") { WorkoutsView() }
+                    MoreRow("Health", "heart.text.square.fill") { HealthView() }
+                    MoreRow("Lab Book", "books.vertical.fill") { LabBookView() }
+                    MoreRow("Stress", "bolt.heart.fill") { StressView() }
+                    MoreRow("Breathe", "wind") { BreathingView() }
+                    MoreRow("Intervals", "timer") { IntervalTimerView() }
+                    // Experimental beat-to-beat regularity visualization — self-gates on its own consent.
+                    MoreRow("Rhythm", "waveform.path") { RhythmHost() }
                 }
-                Section("Data") {
-                    link("Apple Health", "heart.fill") { AppleHealthView() }
-                    link("Data Sources", "externaldrive.fill") { DataSourcesView() }
+                moreSection("Data") {
+                    MoreRow("Your Data, Fused", "square.stack.3d.up.fill") { FusedRecordHost() }
+                    MoreRow("Apple Health", "heart.fill") { AppleHealthView() }
+                    MoreRow("Mi Band", "figure.walk.motion") { XiaomiBandView() }
+                    MoreRow("Data Sources", "externaldrive.fill") { DataSourcesView() }
                     // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
                     // reads the opt-in Documents/noop_sync.txt drop file).
-                    link("Shortcuts Export", "square.and.arrow.up.fill") { ShortcutExportSettingsView() }
+                    MoreRow("Shortcuts Export", "square.and.arrow.up.fill") { ShortcutExportSettingsView() }
                 }
-                Section("App") {
-                    link("Automations", "wand.and.stars") { AutomationsView() }
-                    link("Siri & Shortcuts", "mic.fill") { SiriShortcutsSettingsView() }
-                    link("Settings", "gearshape.fill") { SettingsView() }
-                    link("Support", "hands.clap.fill") { SupportView() }
+                moreSection("App") {
+                    MoreRow("Automations", "wand.and.stars") { AutomationsView() }
+                    MoreRow("Siri & Shortcuts", "mic.fill") { SiriShortcutsSettingsView() }
+                    MoreRow("Settings", "gearshape.fill") { SettingsView() }
+                    MoreRow("Support", "hands.clap.fill") { SupportView() }
                 }
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(StrandPalette.surfaceBase.ignoresSafeArea())
-            .navigationTitle("More")
+            .toolbar(.hidden, for: .tabBar)   // we draw our own FloatingTabBar
         }
         .tabItem { Label("More", systemImage: "ellipsis.circle.fill") }
     }
 
-    private func link<V: View>(_ title: LocalizedStringKey, _ icon: String, @ViewBuilder _ dest: @escaping () -> V) -> some View {
+    /// One titled group in the More index: the app's `SectionHeader` overline (UPPERCASE) over a single
+    /// grouped container whose rows are separated by hairlines — the same idiom Settings/Health use to group
+    /// rows (a `NoopCard` holding a `VStack(spacing: 0)`). Each `MoreRow` draws its own bottom hairline; the
+    /// container clips the column to the card's rounded shape so the final row's divider is trimmed inside
+    /// the corners, leaving dividers only *between* rows.
+    @ViewBuilder
+    private func moreSection<Rows: View>(_ title: LocalizedStringKey,
+                                         @ViewBuilder rows: @escaping () -> Rows) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // The app's overline category label (ALL-CAPS, tracked, small) — same style as Sleep's
+            // "LAST NIGHT" and the Android More page's group labels — NOT the big SectionHeader title2.
+            Text(title).strandOverline()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            // Zero internal padding so each MoreRow owns its own comfortable insets + height; the rows
+            // supply their own hairline separators (drawn at the bottom of every row but the last via the
+            // divider overlay) so the group reads as one continuous grouped list, matching Settings/Health.
+            NoopCard(padding: 0) {
+                VStack(spacing: 0) { rows() }
+                    // Clip the rows column to the card's rounded shape so the last row's bottom hairline is
+                    // trimmed inside the corners (the card draws its surface in the BACKGROUND and doesn't
+                    // clip content itself, so without this the final divider would run past the rounded edge).
+                    .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+            }
+        }
+    }
+}
+
+/// One tappable destination row in the More index. A `NavigationLink` whose label is the standard app row:
+/// the SF Symbol icon tinted `StrandPalette.accent`, the title in the body text colour, a `Spacer`, and a
+/// trailing `chevron.right` in `textTertiary`. ~44pt min height + the card's row insets keep the whole row a
+/// comfortable tap target. Each destination keeps the per-screen wrapper the old `link()` applied
+/// (`surfaceBase` background, inline title-bar, toolbar background) so pushed pages look identical to before.
+private struct MoreRow<Destination: View>: View {
+    let title: LocalizedStringKey
+    let icon: String
+    @ViewBuilder let destination: () -> Destination
+
+    init(_ title: LocalizedStringKey, _ icon: String,
+         @ViewBuilder _ destination: @escaping () -> Destination) {
+        self.title = title; self.icon = icon; self.destination = destination
+    }
+
+    var body: some View {
         NavigationLink {
-            dest()
+            destination()
                 .background(StrandPalette.surfaceBase.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(StrandPalette.surfaceBase, for: .navigationBar)
         } label: {
-            // Pin the icon to the accent explicitly. A plain `Label(_:systemImage:)` icon inherits the
-            // list's tint, which iOS re-resolves to its default blue a beat after first render — so the
-            // icons flashed green→blue (#184). An explicit foregroundStyle on the image overrides that;
-            // the title keeps its default (primary) colour.
-            Label {
+            HStack(spacing: 14) {
+                // Pin the icon to the accent explicitly. A plain inherited tint gets re-resolved by iOS to
+                // its default blue a beat after first render — so the icons flashed green→blue (#184). The
+                // explicit foregroundStyle on the image overrides that; the title keeps the primary colour.
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(StrandPalette.accent)
+                    .frame(width: 26, alignment: .center)
                 Text(title)
-            } icon: {
-                Image(systemName: icon).foregroundStyle(StrandPalette.accent)
+                    .font(StrandFont.body)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            // Hairline under every row; the grouped container clips the last one's overflow so the bottom
+            // edge stays clean (the divider sits inside the card's rounded corners).
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(StrandPalette.hairline)
+                    .frame(height: 1)
+                    .padding(.leading, 16)
             }
         }
-        .listRowBackground(StrandPalette.surfaceRaised)
+        .buttonStyle(.plain)
     }
 }
 
@@ -322,6 +412,75 @@ private struct QuickActionSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Floating tab bar
+
+/// The signature bottom bar: two frosted "glass" islands (Today·Trends / Sleep·More) with the gold
+/// action button nested cleanly in the gap between them — no overlap, no glow. Real iOS 26 Liquid
+/// Glass where available, a `.ultraThinMaterial` fallback below. Replaces the hidden native tab bar.
+private struct FloatingTabBar: View {
+    @Binding var selection: Int
+
+    private struct Item: Identifiable { let title: LocalizedStringKey; let icon: String; let tag: Int; var id: Int { tag } }
+    private let nav = [Item(title: "Today", icon: "square.grid.2x2", tag: 0),
+                       Item(title: "Trends", icon: "chart.line.uptrend.xyaxis", tag: 1),
+                       Item(title: "Sleep", icon: "bed.double", tag: 2),
+                       Item(title: "More", icon: "ellipsis", tag: 3)]
+
+    var body: some View {
+        // One frosted glass bar, four evenly-spaced tabs. The quick-action "+" now lives in the
+        // top-right of each screen's header (balancing the profile avatar on the left).
+        HStack(spacing: 2) {
+            tabButton(nav[0])
+            tabButton(nav[1])
+            tabButton(nav[2])
+            tabButton(nav[3])
+        }
+        .padding(.vertical, 7)
+        .padding(.horizontal, 8)
+        .liquidGlass(in: Capsule())
+        .overlay(Capsule().strokeBorder(StrandPalette.hairline.opacity(0.6), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 5)
+        .padding(.horizontal, 22)
+        .padding(.bottom, 4)
+    }
+
+    private func tabButton(_ item: Item) -> some View {
+        let active = selection == item.tag
+        return Button {
+            withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selection = item.tag }
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 18, weight: active ? .semibold : .regular))
+                Text(item.title)
+                    .font(.system(size: 10, weight: active ? .semibold : .medium))
+            }
+            .foregroundStyle(active ? StrandPalette.accent : StrandPalette.textSecondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.title)
+        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+    }
+
+}
+
+// MARK: - Liquid Glass (iOS 26) with a Material fallback
+
+private extension View {
+    /// Real iOS 26 Liquid Glass where available; `.ultraThinMaterial` on iOS 17–25 — a clean
+    /// blended degrade so the bar stays modern on new OSes without breaking older ones.
+    @ViewBuilder func liquidGlass(in shape: some Shape) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular, in: shape)
+        } else {
+            self.background(.ultraThinMaterial, in: shape)
+        }
     }
 }
 #endif
