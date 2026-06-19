@@ -29,6 +29,7 @@ import com.noop.NoopApplication
 import com.noop.ble.WhoopModel
 import com.noop.data.DemoSeeder
 import com.noop.data.WhoopRepository
+import com.noop.update.UpdateCheckScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -74,6 +75,9 @@ class MainActivity : ComponentActivity() {
         // (WorkManager is KEEP, so this is a no-op when already scheduled, and cancels itself when the
         // feature is off). Wrapped because a WorkManager hiccup must never block launch.
         runCatching { DebugExportScheduler.reschedule(applicationContext) }
+        // Periodic background update check every 12 h (KEEP: first call anchors the clock; no-op on
+        // subsequent launches). Any available release posts to the Updates inbox and fires a notification.
+        runCatching { UpdateCheckScheduler.schedule(applicationContext) }
 
         // Load the Light/Dark/System + chart-colour preferences before first composition so the theme
         // and chart ramps are correct from the very first frame (no flash).

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Notification small icon for app-update alerts. Android renders notification small icons as a
+  single-colour alpha mask — solid white on transparent canvas. Used by UpdateCheckScheduler and
+  ApkDownloader notifications (update available + download progress).
+  Shape: downward arrow above a horizontal baseline bar (system-update / install idiom).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <!-- Downward arrow shaft -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M13,5 L11,5 L11,14 L8,14 L12,18 L16,14 L13,14 Z" />
+    <!-- Baseline tray bar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M5,19 L19,19 L19,21 L5,21 Z" />
+</vector>
