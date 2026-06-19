@@ -104,7 +104,7 @@ object ApkDownloader {
         val indeterminate = total <= 0
         val mb = if (downloaded > 0) " (${downloaded / (1024 * 1024)} MB)" else ""
         val notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle("Downloading NOOP $version")
             .setContentText(if (indeterminate) "Starting…" else "$progress%$mb")
             .setProgress(100, progress, indeterminate)
@@ -122,7 +122,7 @@ object ApkDownloader {
         val uri = apkUri(ctx, apk)
         val installIntent = PendingInstallIntent(ctx, uri)
         val notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle("NOOP $version downloaded")
             .setContentText("Tap to install.")
             .setContentIntent(installIntent)
