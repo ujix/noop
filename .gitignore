@@ -51,6 +51,9 @@ android/app/release/
 .vscode/
 *.iml
 
+# ── CodeGraph index (generated, never commit) ───────────────────
+.codegraph/
+
 # ── Misc / secrets (never commit) ───────────────────────────────
 *.log
 .env
