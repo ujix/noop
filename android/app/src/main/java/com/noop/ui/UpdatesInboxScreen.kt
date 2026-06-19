@@ -1,10 +1,12 @@
 package com.noop.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,17 +21,24 @@ import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.DoneOutline
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +103,7 @@ fun UpdatesInboxScreen(
                     items = unread,
                     onTap = { handleTap(it, store, onDeepLink, onClose) },
                     onRestore = { handleRestore(it, store, onRestore, onClose) },
+                    store = store,
                 )
             }
             if (read.isNotEmpty()) {
@@ -102,6 +112,7 @@ fun UpdatesInboxScreen(
                     items = read,
                     onTap = { handleTap(it, store, onDeepLink, onClose) },
                     onRestore = { handleRestore(it, store, onRestore, onClose) },
+                    store = store,
                 )
             }
 
@@ -157,17 +168,71 @@ private fun subtitle(store: UpdateStore): String {
     return if (n == 0) "All caught up" else "$n unread"
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InboxSection(
     label: String,
     items: List<UpdateItem>,
     onTap: (UpdateItem) -> Unit,
     onRestore: (UpdateItem) -> Unit,
+    store: UpdateStore,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         Overline(label, color = Palette.textTertiary)
         items.forEach { item ->
-            UpdateRow(item = item, onTap = { onTap(item) }, onRestore = { onRestore(item) })
+            // Key the swipe state on the item id + read status: when an unread item becomes read
+            // via the swipe, a recompose produces a new key which resets the state to Settled so
+            // the row doesn't stay in its dismissed position after moving to "Earlier".
+            val swipeKey = "${item.id}:${item.read}"
+            val dismissState = rememberSwipeToDismissBoxState(
+                key1 = swipeKey,
+                confirmValueChange = { value ->
+                    if (value == SwipeToDismissBoxValue.StartToEnd) {
+                        store.markRead(item.id)
+                    }
+                    // Never let the framework remove the composable; we keep the item in the list
+                    // and recompose it as "read" so it slides to the Earlier section naturally.
+                    false
+                },
+            )
+            // Reset the state visually once the item is already read (e.g. tapped or marked-all).
+            LaunchedEffect(item.read) {
+                if (item.read) dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+            }
+
+            SwipeToDismissBox(
+                state = dismissState,
+                enableDismissFromStartToEnd = !item.read,
+                enableDismissFromEndToStart = false,
+                backgroundContent = {
+                    val progress = dismissState.progress
+                    val bg by animateColorAsState(
+                        targetValue = if (progress > 0.2f) Palette.accent.copy(alpha = 0.15f)
+                        else Color.Transparent,
+                        label = "swipe-bg",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(Metrics.cardRadius))
+                            .background(bg)
+                            .padding(start = 20.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (progress > 0.1f) {
+                            Icon(
+                                Icons.Outlined.DoneOutline,
+                                contentDescription = "Mark as read",
+                                tint = Palette.accent,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                },
+            ) {
+                UpdateRow(item = item, onTap = { onTap(item) }, onRestore = { onRestore(item) })
+            }
         }
     }
 }
