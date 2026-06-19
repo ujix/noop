@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.DoneOutline
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.NotificationsOff
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,8 +38,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -180,25 +181,20 @@ private fun InboxSection(
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         Overline(label, color = Palette.textTertiary)
         items.forEach { item ->
-            // Key the swipe state on the item id + read status: when an unread item becomes read
-            // via the swipe, a recompose produces a new key which resets the state to Settled so
-            // the row doesn't stay in its dismissed position after moving to "Earlier".
-            val swipeKey = "${item.id}:${item.read}"
+            // key() forces a fresh rememberSwipeToDismissBoxState when the item transitions from
+            // unread to read — prevents the row staying in its swiped-away position after the
+            // item recomposes into the Earlier section.
+            key("${item.id}:${item.read}") {
             val dismissState = rememberSwipeToDismissBoxState(
-                key1 = swipeKey,
                 confirmValueChange = { value ->
                     if (value == SwipeToDismissBoxValue.StartToEnd) {
                         store.markRead(item.id)
                     }
-                    // Never let the framework remove the composable; we keep the item in the list
-                    // and recompose it as "read" so it slides to the Earlier section naturally.
+                    // Return false: don't let the framework remove the composable. The item stays
+                    // in the list and recomposes as "read" so it moves to the Earlier section.
                     false
                 },
             )
-            // Reset the state visually once the item is already read (e.g. tapped or marked-all).
-            LaunchedEffect(item.read) {
-                if (item.read) dismissState.snapTo(SwipeToDismissBoxValue.Settled)
-            }
 
             SwipeToDismissBox(
                 state = dismissState,
@@ -233,6 +229,7 @@ private fun InboxSection(
             ) {
                 UpdateRow(item = item, onTap = { onTap(item) }, onRestore = { onRestore(item) })
             }
+            } // key()
         }
     }
 }
@@ -353,6 +350,7 @@ private fun kindIcon(kind: UpdateKind): ImageVector = when (kind) {
     UpdateKind.WHATS_NEW -> Icons.Outlined.AutoAwesome
     UpdateKind.READING -> Icons.Outlined.MonitorHeart
     UpdateKind.STRAP_ALERT -> Icons.Outlined.Warning
+    UpdateKind.UPDATE_AVAILABLE -> Icons.Outlined.SystemUpdate
 }
 
 /** A per-kind tint drawn from the domain palette so each row reads in its own colour world.
@@ -362,6 +360,7 @@ private fun kindTint(kind: UpdateKind): Color = when (kind) {
     UpdateKind.WHATS_NEW -> Palette.accent
     UpdateKind.READING -> Palette.restColor
     UpdateKind.STRAP_ALERT -> Palette.statusWarning
+    UpdateKind.UPDATE_AVAILABLE -> Palette.accent
 }
 
 /** Tapping a row marks it read, then routes if it carries a deep link (else just stays open). */
