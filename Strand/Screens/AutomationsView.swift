@@ -162,7 +162,7 @@ struct AutomationsView: View {
 
     private var alarmCard: some View {
         Section2(icon: "alarm.fill", title: "Smart alarm",
-                 blurb: "Wake to a buzz from the strap's own firmware alarm. Experimental — a strap-driven wake hasn't been verified firing yet on WHOOP 4.0 or 5/MG, so keep a backup alarm.",
+                 blurb: "Wake to a buzz from the strap's own firmware alarm — confirmed working on WHOOP 4.0. The strap buzzes at your set time even if the phone is asleep or NOOP is closed.",
                  active: behavior.smartAlarmEnabled) {
             VStack(spacing: 0) {
                 ToggleRow(label: "Enable smart alarm", help: "Arms the strap to buzz at your wake time.",
@@ -178,7 +178,7 @@ struct AutomationsView: View {
                     .frame(minHeight: 42).padding(.vertical, 4)
                 }
                 if behavior.smartAlarmEnabled {
-                    Text("Experimental. NOOP arms the strap's own alarm and the strap acknowledges it, but a strap-driven wake-up hasn't been verified firing from a report yet — on WHOOP 4.0 or 5/MG — so please keep a backup alarm on your phone for now. We're confirming the exact firmware buzz pattern before we call this proven.")
+                    Text("Armed directly on the strap — it will buzz at your wake time even if your phone is asleep or NOOP is closed. WHOOP 5/MG requires Experimental mode (Settings → Experimental).")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
