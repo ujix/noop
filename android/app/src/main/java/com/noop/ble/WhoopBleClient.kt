@@ -1741,8 +1741,10 @@ class WhoopBleClient(
      * Arm the strap's **firmware** alarm to buzz at [epochSec] (absolute UTC seconds). The strap fires
      * at that instant even if the phone is asleep or NOOP is closed. SET_CLOCK is sent first so the
      * strap's RTC is UTC-correct (a wrong RTC fires the alarm at the wrong wall-clock time). Payload =
-     * `[0x01] + u32 LE epoch + [0x00, 0x00]`. Port of macOS `BLEManager.armStrapAlarm`. WHOOP 4.0; on
-     * 5/MG `send()` drops it (the 5/MG command set isn't verified for this yet).
+     * `[0x01] + u32 LE epoch + [0x00, 0x00] + [0x00, 0x00]` (9 bytes; confirmed via HCI wire capture
+     * against official WHOOP app on a real 4.0 — the two trailing bytes are the haptic-mode field the
+     * firmware requires to actually buzz; without them the strap ACKs but stays silent). Port of macOS
+     * `BLEManager.armStrapAlarm`. WHOOP 4.0; on 5/MG `send()` drops it (separate rev4 path).
      */
     fun armStrapAlarm(epochSec: Long) {
         if (connectedFamily == DeviceFamily.WHOOP5) {
@@ -1767,7 +1769,8 @@ class WhoopBleClient(
             ((e shr 8) and 0xFF).toByte(),
             ((e shr 16) and 0xFF).toByte(),
             ((e shr 24) and 0xFF).toByte(),
-            0x00, 0x00,
+            0x00, 0x00, // subseconds (always 0 — minute-precision alarm)
+            0x00, 0x00, // haptic-mode field required by 4.0 firmware (confirmed wire capture)
         )
         send(CommandNumber.SET_ALARM_TIME, payload)
         log("Alarm: armed (epoch $epochSec)")

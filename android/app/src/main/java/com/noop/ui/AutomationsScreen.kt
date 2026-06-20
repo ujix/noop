@@ -196,12 +196,12 @@ fun AutomationsScreen(viewModel: AppViewModel) {
         SettingsSection(
             icon = Icons.Filled.Alarm,
             title = "Smart alarm",
-            blurb = "Wake to a buzz from the strap's own firmware alarm. Experimental — we haven't yet confirmed the strap reliably fires this wake on our side, so keep a backup alarm and don't rely on it alone.",
+            blurb = "Wake to a buzz from the strap's own firmware alarm — confirmed working on WHOOP 4.0. The strap buzzes at your set time even if the phone is asleep or NOOP is closed.",
             active = smartAlarm,
         ) {
             ToggleRow(
                 label = "Enable smart alarm",
-                help = "Arms the strap to buzz at your wake time. Experimental — see the note below.",
+                help = "Arms the strap to buzz at your wake time.",
                 checked = smartAlarm,
                 onChange = { viewModel.setSmartAlarmEnabled(it) },
             )
@@ -228,9 +228,9 @@ fun AutomationsScreen(viewModel: AppViewModel) {
                 } else {
                     Text(
                         if (live.bonded)
-                            "Armed on the strap itself, so it can buzz at your wake time even if your phone is asleep or NOOP is closed. Still experimental — we can't yet guarantee it fires, so keep a backup alarm."
+                            "Armed on the strap itself — it will buzz at your wake time even if your phone is asleep or NOOP is closed."
                         else
-                            "Connect your strap to arm this — it's set on the strap's own firmware alarm. Still experimental, so keep a backup alarm until you've confirmed it wakes you.",
+                            "Connect your strap to arm this — the alarm is set directly on the strap's firmware.",
                         style = NoopType.footnote, color = Palette.textTertiary,
                     )
                 }
