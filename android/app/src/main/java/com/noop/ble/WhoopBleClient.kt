@@ -1762,17 +1762,7 @@ class WhoopBleClient(
             return
         }
         sendSetClockBothForms()
-        val e = epochSec.toInt()
-        val payload = byteArrayOf(
-            0x01,
-            (e and 0xFF).toByte(),
-            ((e shr 8) and 0xFF).toByte(),
-            ((e shr 16) and 0xFF).toByte(),
-            ((e shr 24) and 0xFF).toByte(),
-            0x00, 0x00, // subseconds (always 0 — minute-precision alarm)
-            0x00, 0x00, // haptic-mode field required by 4.0 firmware (confirmed wire capture)
-        )
-        send(CommandNumber.SET_ALARM_TIME, payload)
+        send(CommandNumber.SET_ALARM_TIME, whoop4AlarmPayload(epochSec))
         log("Alarm: armed (epoch $epochSec)")
     }
 
@@ -4103,6 +4093,24 @@ private val PII_WHOOP_SERIAL_RE = Regex("WHOOP (\\d[0-9A-Za-z]{5,})")
  *  TOTAL — never throws: a redaction failure returns a safe placeholder rather than leaking the raw
  *  line or crashing the caller (#453). The MAC regex captures exactly two groups (first + last octet),
  *  so the replacement references $1/$2 only. */
+/**
+ * Builds the 9-byte SET_ALARM_TIME payload for WHOOP 4.0.
+ * Layout: [0x01] + u32 LE epoch + [0x00, 0x00] subseconds + [0x00, 0x00] haptic-mode field.
+ * Confirmed via HCI wire capture (#535): without the trailing two bytes the strap ACKs but stays silent.
+ */
+internal fun whoop4AlarmPayload(epochSec: Long): ByteArray {
+    val e = epochSec.toInt()
+    return byteArrayOf(
+        0x01,
+        (e and 0xFF).toByte(),
+        ((e shr 8) and 0xFF).toByte(),
+        ((e shr 16) and 0xFF).toByte(),
+        ((e shr 24) and 0xFF).toByte(),
+        0x00, 0x00, // subseconds (always 0 — minute-precision alarm)
+        0x00, 0x00, // haptic-mode field required by 4.0 firmware (confirmed wire capture)
+    )
+}
+
 internal fun redactStrapLogPii(s: String): String = try {
     s.replace(PII_MAC_RE, "$1:••:••:••:••:$2")
         .replace(PII_WHOOP_SERIAL_RE, "WHOOP <serial>")
