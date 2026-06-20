@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.noop.ble.LiveState
 
 /**
  * Smart alarm (#207) — Android phone-based wake, with a guaranteed hard-deadline fallback.
@@ -56,6 +57,8 @@ fun SmartAlarmScreen(vm: AppViewModel) {
     val enabled by vm.phoneAlarmEnabled.collectAsStateWithLifecycle()
     val targetMinutes by vm.phoneAlarmTargetMinutes.collectAsStateWithLifecycle()
     val windowMinutes by vm.phoneAlarmWindowMinutes.collectAsStateWithLifecycle()
+    val buzzWhoop4 by vm.buzzWhoop4Enabled.collectAsStateWithLifecycle()
+    val live by vm.live.collectAsStateWithLifecycle()
 
     // True when exact alarms are permitted. Re-read on each (re)composition because the user can grant
     // it in Settings and come back — there's no result callback for this special-access permission.
@@ -68,7 +71,11 @@ fun SmartAlarmScreen(vm: AppViewModel) {
         // The guaranteed-wake card always shows so the safety promise is the first thing read.
         WindowCard(enabled = enabled, targetMinutes = targetMinutes, windowMinutes = windowMinutes)
 
-        AlarmSettingsCard {
+        AlarmSettingsCard(
+            buzzWhoop4 = buzzWhoop4,
+            live = live,
+            onBuzzWhoop4Change = { vm.setBuzzWhoop4Enabled(it) },
+        ) {
             ToggleRowLocal(
                 label = "Wake me with a smart alarm",
                 help = "A guaranteed OS alarm is set for the end of your window; the strap stream can move it earlier if you're sleeping lightly.",
@@ -188,7 +195,12 @@ private fun WindowCard(enabled: Boolean, targetMinutes: Int, windowMinutes: Int)
 }
 
 @Composable
-private fun AlarmSettingsCard(content: @Composable () -> Unit) {
+private fun AlarmSettingsCard(
+    buzzWhoop4: Boolean,
+    live: LiveState,
+    onBuzzWhoop4Change: (Boolean) -> Unit,
+    content: @Composable () -> Unit,
+) {
     NoopCard(padding = 20.dp) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -197,6 +209,16 @@ private fun AlarmSettingsCard(content: @Composable () -> Unit) {
                 Text("Wake alarm", style = NoopType.headline, color = Palette.textPrimary)
             }
             content()
+            RowDividerLocal()
+            ToggleRowLocal(
+                label = "Buzz WHOOP 4",
+                help = if (live.bonded)
+                    "Arms the strap to buzz at your earliest wake time — strap buzzes first, phone alarm fires as backup at the window's end."
+                else
+                    "Connect and pair your WHOOP 4.0 to use this — the strap will buzz at your earliest wake time.",
+                checked = buzzWhoop4,
+                onChange = onBuzzWhoop4Change,
+            )
         }
     }
 }

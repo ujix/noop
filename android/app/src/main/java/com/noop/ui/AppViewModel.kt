@@ -298,6 +298,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** How long after the target the guaranteed hard deadline sits. */
     val phoneAlarmWindowMinutes: StateFlow<Int> = _phoneAlarmWindowMinutes.asStateFlow()
 
+    // "Buzz WHOOP 4" — companion toggle that arms the strap's firmware alarm at the phone alarm's
+    // earliest wake time. Declared here (next to phoneAlarmStore) so the two are always initialized
+    // together; see the #84 note on _smartAlarmEnabled above.
+    private val _buzzWhoop4Enabled = MutableStateFlow(NoopPrefs.buzzWhoop4WithAlarm(appContext))
+    /** Whether the strap should also buzz at the phone alarm's earliest wake time. */
+    val buzzWhoop4Enabled: StateFlow<Boolean> = _buzzWhoop4Enabled.asStateFlow()
+
     // Wind-down nudge (#207) — cross-platform, NON-safety-critical. A gentle evening notification
     // derived from the user's earliest wake time. Inexact daily alarm; no exact-alarm permission.
     private val windDownStore = WindDownStore.from(appContext)
@@ -345,6 +352,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 dispatchDoubleTap(state)
                 if (state.bonded && !lastBonded) {
                     if (_smartAlarmEnabled.value) applySmartAlarm()
+                    if (_buzzWhoop4Enabled.value) applyBuzzWhoop4()
                     // Remember this strap so we can reconnect to it directly on the next launch (#67),
                     // e.g. after an APK update restarts the process.
                     ble.lastDeviceAddress?.let { NoopPrefs.setLastDevice(appContext, it, _selectedModel.value) }
@@ -1077,6 +1085,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (phoneAlarmStore.enabled) SmartAlarmScheduler.arm(appContext, phoneAlarmStore)
         // The wind-down nudge is derived from the wake time, so keep it in step.
         if (windDownStore.enabled) WindDownScheduler.schedule(appContext, windDownStore, phoneAlarmStore.targetMinutes)
+        // Re-arm the strap at the new earliest time when "Buzz WHOOP 4" is on.
+        if (_buzzWhoop4Enabled.value) applyBuzzWhoop4()
     }
 
     /** Change the window length (minutes after the target the hard deadline sits). Re-arms while
@@ -1085,6 +1095,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         phoneAlarmStore.windowMinutes = minutes
         _phoneAlarmWindowMinutes.value = phoneAlarmStore.windowMinutes
         if (phoneAlarmStore.enabled) SmartAlarmScheduler.arm(appContext, phoneAlarmStore)
+    }
+
+    /** Toggle the "Buzz WHOOP 4" companion. Enabling immediately arms the strap at the current
+     *  earliest wake time; disabling disarms it. */
+    fun setBuzzWhoop4Enabled(enabled: Boolean) {
+        _buzzWhoop4Enabled.value = enabled
+        NoopPrefs.setBuzzWhoop4WithAlarm(appContext, enabled)
+        if (enabled) applyBuzzWhoop4() else ble.disableStrapAlarm()
+    }
+
+    /** Arm the strap's firmware alarm at the phone alarm's EARLIEST wake time (target minutes),
+     *  so the strap buzzes first and the OS alarm fires at the hard deadline as backup. */
+    private fun applyBuzzWhoop4() {
+        if (!_buzzWhoop4Enabled.value) return
+        val targetMin = phoneAlarmStore.targetMinutes
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, targetMin / 60)
+            set(java.util.Calendar.MINUTE, targetMin % 60)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        if (cal.timeInMillis <= System.currentTimeMillis()) cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        ble.armStrapAlarm(cal.timeInMillis / 1000)
     }
 
     /** Whether the OS will honour an exact alarm right now (API 31+ gates it behind a permission). */

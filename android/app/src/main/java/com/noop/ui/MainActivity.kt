@@ -288,6 +288,18 @@ object NoopPrefs {
         of(context).edit().putInt(KEY_SMART_ALARM_MINUTES, minutes).apply()
     }
 
+    /** "Buzz WHOOP 4" — arm the strap's firmware alarm at the phone smart alarm's earliest wake time,
+     *  so the strap buzzes FIRST and the phone alarm fires at the hard deadline as backup. WHOOP 4.0
+     *  only (5/MG path is still unconfirmed). Default off. */
+    const val KEY_BUZZ_WHOOP4_WITH_ALARM = "noop.buzzWhoop4WithAlarm"
+
+    fun buzzWhoop4WithAlarm(context: Context): Boolean =
+        of(context).getBoolean(KEY_BUZZ_WHOOP4_WITH_ALARM, false)
+
+    fun setBuzzWhoop4WithAlarm(context: Context, enabled: Boolean) {
+        of(context).edit().putBoolean(KEY_BUZZ_WHOOP4_WITH_ALARM, enabled).apply()
+    }
+
     /** HR-zone haptic coaching: buzz the strap on entering the top zone (ease off) and — when the
      *  recovery buzz is on — on dropping back to Zone 1. Zone-based off the profile's HR-max; mirrors
      *  macOS. Coaching default off; recovery buzz default on (matches macOS's always-both behaviour).
