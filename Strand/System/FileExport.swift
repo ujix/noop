@@ -32,6 +32,14 @@ enum FileExport {
         "\(prefix)-\(timestamp()).\(ext)"
     }
 
+    /// Profile-tagged, self-describing bundle filename: `noop-<profile>-<platform>-v<version>-<yyMMdd-HHmm>.zip`
+    /// (spec section 5.1). Self-describing at a glance so a maintainer knows the profile, platform and
+    /// version before opening the zip. `timestampedName` keeps its old 2-arg form for the existing
+    /// strap-log / raw-capture callers; this is the new bundle-name builder.
+    static func bundleName(profile: String, platform: String, version: String, date: Date = Date()) -> String {
+        "noop-\(profile)-\(platform)-v\(version)-\(timestamp(date)).zip"
+    }
+
     /// Write `text` to a file and let the user choose where it goes.
     @MainActor
     static func exportText(_ text: String, suggestedName: String) {
