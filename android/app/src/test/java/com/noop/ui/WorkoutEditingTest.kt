@@ -152,6 +152,33 @@ class WorkoutEditingTest {
     }
 
     @Test
+    fun dedupCrossSourceTrace_keptIsByteIdenticalAndNamesThePair() {
+        // The Workouts test-mode dedup twin must return the SAME kept list dedupCrossSource does, plus a
+        // decision line naming the kept vs dropped source. Mirrors the Swift dedup-trace parity test.
+        val live = richRow(1000, 4600, "Running", "whoop")
+        val hc = thinImport(1030, 4580, "Running", "health-connect")
+        val plain = WorkoutEditing.dedupCrossSource(listOf(live, hc))
+        val (kept, trace) = WorkoutEditing.dedupCrossSourceTrace(listOf(live, hc))
+        assertEquals(plain.map { it.source }, kept.map { it.source })
+        assertEquals(1, kept.size)
+        assertEquals("whoop", kept.first().source)
+        assertEquals(1, trace.size)
+        assertTrue(trace[0].contains("dedup sport=running"))
+        assertTrue(trace[0].contains("kept=strap"))
+        assertTrue(trace[0].contains("dropped=apple"))
+        assertFalse(trace.any { it.contains("\u2014") })
+    }
+
+    @Test
+    fun dedupCrossSourceTrace_emitsNothingForDistinctSessions() {
+        val run = richRow(1000, 4600, "Running", "whoop")
+        val lift = richRow(5000, 8600, "Strength Training", "whoop")
+        val (kept, trace) = WorkoutEditing.dedupCrossSourceTrace(listOf(run, lift))
+        assertEquals(2, kept.size)
+        assertTrue(trace.isEmpty())
+    }
+
+    @Test
     fun dedupCrossSource_keepsNonImportOnRichnessTie() {
         // Two equally-thin rows: a strap "manual" live row and a Health Connect import. Keep the strap one.
         val manual = thinImport(1000, 4600, "Walking", "manual")

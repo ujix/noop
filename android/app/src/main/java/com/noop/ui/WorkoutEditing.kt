@@ -1,5 +1,6 @@
 package com.noop.ui
 
+import com.noop.analytics.WorkoutsTrace
 import com.noop.data.DismissedWorkout
 import com.noop.data.WorkoutRow
 
@@ -163,6 +164,45 @@ object WorkoutEditing {
             kept.add(row)
         }
         return kept
+    }
+
+    /** A short, source-only descriptor of a row for the Workouts test-mode dedup trace. Mirrors Swift. */
+    fun sourceLabel(row: WorkoutRow): String = when (classify(row.source)) {
+        WorkoutSource.WHOOP -> "strap"
+        WorkoutSource.APPLE -> "apple"
+        WorkoutSource.DETECTED -> "detected"
+        WorkoutSource.MANUAL -> "manual"
+        WorkoutSource.LIFTING -> "lifting"
+        WorkoutSource.ACTIVITY_FILE -> "activityFile"
+    }
+
+    /**
+     * Diagnostic twin of [dedupCrossSource] for the Workouts & GPS test mode: returns the BYTE-IDENTICAL kept
+     * list (the SAME walk, the SAME [preferred] choice) plus a trace line per collapsed pair naming the kept
+     * vs dropped source and their richness. The kept output equals [dedupCrossSource] exactly. Mirrors Swift.
+     */
+    fun dedupCrossSourceTrace(rows: List<WorkoutRow>): Pair<List<WorkoutRow>, List<String>> {
+        val kept = ArrayList<WorkoutRow>(rows.size)
+        val lines = ArrayList<String>()
+        outer@ for (row in rows) {
+            for (i in kept.indices) {
+                if (sameActivity(kept[i], row)) {
+                    val winner = preferred(kept[i], row)
+                    val loser = if (winner.startTs == kept[i].startTs && winner.source == kept[i].source) row else kept[i]
+                    lines.add(
+                        WorkoutsTrace.dedupLine(
+                            sportKey = sportKey(row.sport),
+                            keptSource = sourceLabel(winner), droppedSource = sourceLabel(loser),
+                            keptRichness = richness(winner), droppedRichness = richness(loser),
+                        ),
+                    )
+                    kept[i] = winner
+                    continue@outer
+                }
+            }
+            kept.add(row)
+        }
+        return kept to lines
     }
 
     // MARK: - Building / preserving rows
