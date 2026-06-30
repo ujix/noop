@@ -1001,17 +1001,101 @@ final class AppModel: ObservableObject {
     }
     #endif
 
+    /// Stable identifier base for the smart-alarm BACKUP wake notification(s). The every-day case uses
+    /// this id directly; the per-weekday case fans out to "<base>-d<weekday>" so a re-arm replaces by id
+    /// and never stacks. Kept separate from "smart-alarm-wake" (the strap-confirmed mirror) so the two
+    /// never collide.
+    private static let smartAlarmBackupId = "smart-alarm-wake-backup"
+    private static var smartAlarmBackupIds: [String] {
+        [smartAlarmBackupId] + (1...7).map { "\(smartAlarmBackupId)-d\($0)" }
+    }
+
+    /// Schedule a BEST-EFFORT repeating daily backup wake notification for the smart alarm (#4 + #6).
+    ///
+    /// The strap firmware alarm is one absolute instant and the mirror in `postSmartAlarm` only posts
+    /// AFTER the strap reports it fired, so if the buzz fails or the phone is suspended past day one there
+    /// was previously no OS-level wake at all. This adds a repeating `UNCalendarNotificationTrigger` that
+    /// "lives in the notification center, not our process" (the WindDownNudge idiom), so it survives
+    /// relaunch and keeps firing each chosen morning even with the app killed.
+    ///
+    /// HONEST: this is NOT a guaranteed loud alarm. A sideloaded build has no critical-alert entitlement,
+    /// so iOS Focus / silent mode can still suppress the sound. The UI copy says to keep a real backup.
+    ///
+    /// Gated on the wrist-alerts master (the same switch `postWristAlert` honours) and on the OS already
+    /// having authorized notifications (no second prompt). Always removes the prior set first, so a re-arm
+    /// replaces rather than stacks. `weekdays` empty = every day (single daily trigger); a non-empty set
+    /// fans out to one weekday-pinned trigger per selected day. No-op on macOS.
+    static func scheduleSmartAlarmBackupNotification(minutes: Int, weekdays: Set<Int>) {
+        #if os(iOS)
+        let center = UNUserNotificationCenter.current()
+        // Always clear BOTH the single and the per-day ids so switching modes (or editing the weekday set)
+        // never leaves an orphaned trigger or double-fires.
+        center.removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
+        guard UserDefaults.standard.bool(forKey: wristAlertsMasterKey) else { return }
+        let valid = weekdays.filter { (1...7).contains($0) }
+        // A non-empty selection that filters to nothing (only out-of-range numbers) has no day to fire on.
+        if !weekdays.isEmpty && valid.isEmpty { return }
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Smart alarm"
+            content.body = "Backup wake , your smart alarm time is here."
+            content.sound = .default
+            let hour = minutes / 60
+            let minute = minutes % 60
+            if weekdays.isEmpty {
+                var comps = DateComponents()
+                comps.hour = hour
+                comps.minute = minute
+                let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
+                center.add(UNNotificationRequest(identifier: smartAlarmBackupId, content: content, trigger: trigger))
+            } else {
+                for weekday in valid {
+                    var comps = DateComponents()
+                    comps.weekday = weekday   // Calendar weekday 1=Sun…7=Sat , fires weekly on that day
+                    comps.hour = hour
+                    comps.minute = minute
+                    let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
+                    center.add(UNNotificationRequest(identifier: "\(smartAlarmBackupId)-d\(weekday)",
+                                                     content: content, trigger: trigger))
+                }
+            }
+        }
+        #endif
+    }
+
+    /// Cancel the smart-alarm backup wake notification(s). Called on disarm. No-op on macOS.
+    static func cancelSmartAlarmBackupNotification() {
+        #if os(iOS)
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
+        #endif
+    }
+
     /// Arm (or clear) the strap's firmware alarm from the smart-alarm settings. The firmware alarm
     /// fires even if the Mac is asleep / NOOP is closed. No-op until bonded (send is gated on bond).
+    ///
+    /// On iOS this ALSO (dis)arms the best-effort backup wake notification (#4 + #6): a repeating daily
+    /// `UNCalendarNotificationTrigger` that survives suspend/relaunch, so a missed strap buzz still gets
+    /// an OS-level wake. macOS keeps just the firmware alarm (the static helpers are no-ops there).
     func applySmartAlarm() {
-        guard behavior.smartAlarmEnabled else { ble.disableStrapAlarm(); return }
+        guard behavior.smartAlarmEnabled else {
+            ble.disableStrapAlarm()
+            Self.cancelSmartAlarmBackupNotification()
+            return
+        }
         guard let next = Self.nextSmartAlarmDate(minutes: behavior.smartAlarmMinutes,
                                                  weekdays: behavior.smartAlarmWeekdays) else {
             // No enabled weekday in the next week (only possible from a corrupted set) , disarm rather
             // than arm a misleading time the user never asked for.
-            ble.disableStrapAlarm(); return
+            ble.disableStrapAlarm()
+            Self.cancelSmartAlarmBackupNotification()
+            return
         }
         ble.armStrapAlarm(at: next)
+        // Replace (remove + re-add by stable identifier) on every re-arm so the backup never stacks.
+        Self.scheduleSmartAlarmBackupNotification(minutes: behavior.smartAlarmMinutes,
+                                                  weekdays: behavior.smartAlarmWeekdays)
     }
 
     /// Compute the next fire date for the smart alarm, honouring the weekday selection.

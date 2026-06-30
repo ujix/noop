@@ -515,8 +515,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 coachZone(state)
                 dispatchDoubleTap(state)
                 if (state.bonded && !lastBonded) {
-                    if (_smartAlarmEnabled.value) applySmartAlarm()
-                    if (_buzzWhoop4Enabled.value) applyBuzzWhoop4()  // #536: re-arm on reconnect
+                    // #59/#536: re-arm the strap on (re)bond. One reconcile covers BOTH the smart wake-alarm
+                    // and the Buzz-WHOOP companion, arming the single slot to the earliest either wants (#5).
+                    reconcileStrapAlarm()
                     // Remember this strap so we can reconnect to it directly on the next launch (#67),
                     // e.g. after an APK update restarts the process.
                     ble.lastDeviceAddress?.let { NoopPrefs.setLastDevice(appContext, it, _selectedModel.value) }
@@ -543,14 +544,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // SAFETY: this is only the SECONDARY strap-buzz cue — the GUARANTEED wake is a separate exact OS
         // alarm via [SmartAlarmScheduler], which re-arms itself daily and survives process death. So a
         // process-alive loop is the right minimal scope here (parity with macOS's live re-arm Timer and
-        // iOS's foreground re-arm). [applySmartAlarm] self-gates on _smartAlarmEnabled and only ever arms
-        // a FUTURE instant (today's wake, or tomorrow's if already passed) — it never disarms while the
-        // alarm is enabled — so the daily tick can only ever move the armed time equal-or-later.
+        // iOS's foreground re-arm). [reconcileStrapAlarm] re-evaluates BOTH features and only ever arms a
+        // FUTURE instant (today's wake, or tomorrow's if already passed), so the daily tick can only move
+        // the armed time equal-or-later (and harmlessly re-asserts a disarm when neither feature is on).
         viewModelScope.launch {
             while (isActive) {
                 delay(STRAP_ALARM_REARM_INTERVAL_MS) // daily
-                if (_smartAlarmEnabled.value) applySmartAlarm()
-                if (_buzzWhoop4Enabled.value) applyBuzzWhoop4()  // #536: daily re-arm
+                reconcileStrapAlarm()  // #5/#59/#536: one reconcile covers both strap-alarm features
             }
         }
         // Recompute the illness banner + today's row whenever cached days change.
@@ -1608,13 +1608,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setSmartAlarmEnabled(enabled: Boolean) {
         _smartAlarmEnabled.value = enabled
         NoopPrefs.setSmartAlarmEnabled(appContext, enabled)
-        applySmartAlarm()
+        reconcileStrapAlarm()
     }
 
     fun setSmartAlarmMinutes(minutes: Int) {
         _smartAlarmMinutes.value = minutes.coerceIn(0, 24 * 60 - 1)
         NoopPrefs.setSmartAlarmMinutes(appContext, _smartAlarmMinutes.value)
-        applySmartAlarm()
+        reconcileStrapAlarm()
     }
 
     /** Set which weekdays the strap alarm fires on (Calendar.DAY_OF_WEEK 1=Sun…7=Sat; empty = every
@@ -1623,7 +1623,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val clean = days.filter { it in 1..7 }.toSet()
         _smartAlarmWeekdays.value = clean
         NoopPrefs.setSmartAlarmWeekdays(appContext, clean)
-        applySmartAlarm()
+        reconcileStrapAlarm()
     }
 
     /** Set a per-weekday wake-time override (#554 reimpl). [minutes] = null clears the override for [dow]
@@ -1635,7 +1635,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (minutes == null) next.remove(dow) else next[dow] = minutes.coerceIn(0, 24 * 60 - 1)
         _smartAlarmDayOverrides.value = next
         NoopPrefs.setSmartAlarmDayOverrides(appContext, next)
-        applySmartAlarm()
+        reconcileStrapAlarm()
     }
 
     // --- PHONE smart alarm (#207). The setters persist + (re)arm the GUARANTEED OS alarm via
@@ -1665,32 +1665,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (phoneAlarmStore.enabled) SmartAlarmScheduler.arm(appContext, phoneAlarmStore)
         // The wind-down nudge is derived from the wake time, so keep it in step.
         if (windDownStore.enabled) WindDownScheduler.schedule(appContext, windDownStore, phoneAlarmStore.targetMinutes)
-        // #536: re-arm the strap at the new earliest time when "Buzz WHOOP 4" is on.
-        if (_buzzWhoop4Enabled.value) applyBuzzWhoop4()
+        // #536: re-arm the strap at the new earliest time when "Buzz WHOOP 4" is on. Routed through the
+        // single reconciler so it can't clobber a smart-alarm the user still has on (#5).
+        reconcileStrapAlarm()
     }
 
-    /** Toggle the "Buzz WHOOP 4" companion (#536). Enabling immediately arms the strap at the current
-     *  earliest wake time; disabling disarms it. */
+    /** Toggle the "Buzz WHOOP 4/5" companion (#536). Routes through the single strap-alarm reconciler so
+     *  enabling/disabling it never clobbers a smart wake-alarm sharing the one firmware slot (#5): on the
+     *  reconcile re-evaluates BOTH flags and arms the earliest, off it re-evaluates and keeps the slot for
+     *  the smart alarm if that's still on. */
     fun setBuzzWhoop4Enabled(enabled: Boolean) {
         _buzzWhoop4Enabled.value = enabled
         NoopPrefs.setBuzzWhoop4WithAlarm(appContext, enabled)
-        if (enabled) applyBuzzWhoop4() else ble.disableStrapAlarm()
-    }
-
-    /** Arm the strap's firmware alarm at the phone smart alarm's EARLIEST wake time (target minutes), so
-     *  the strap buzzes first and the OS alarm fires at the hard deadline as backup. Rolls to tomorrow if
-     *  that time has already passed today. (#536) */
-    private fun applyBuzzWhoop4() {
-        if (!_buzzWhoop4Enabled.value) return
-        val targetMin = phoneAlarmStore.targetMinutes
-        val cal = java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.HOUR_OF_DAY, targetMin / 60)
-            set(java.util.Calendar.MINUTE, targetMin % 60)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
-            if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_YEAR, 1)
-        }
-        ble.armStrapAlarm(cal.timeInMillis / 1000)
+        reconcileStrapAlarm()
     }
 
     /** Change the window length (minutes after the target the hard deadline sits). Re-arms while
@@ -1769,22 +1756,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         NoopPrefs.setBatteryAlerts(appContext, enabled)
     }
 
-    /** Arm or clear the strap's firmware alarm from the current setting, computing the next occurrence
-     *  of the wake time (today, or tomorrow if it's already passed). Needs the strap connected — if it
-     *  isn't, `send()` logs "ignored — not connected" and arming happens next time you connect + toggle. */
-    private fun applySmartAlarm() {
-        if (!_smartAlarmEnabled.value) {
-            ble.disableStrapAlarm()
-            return
-        }
-        val epochSec = nextSmartAlarmEpochSec(
-            _smartAlarmMinutes.value,
-            _smartAlarmWeekdays.value,
-            dayOverrides = _smartAlarmDayOverrides.value,
-        )
+    /** Re-evaluate the strap's single firmware-alarm slot from BOTH features that want it (#5).
+     *
+     *  The "Strap wake-alarm" (_smartAlarmEnabled) and the "Buzz WHOOP 4/5" companion (_buzzWhoop4Enabled)
+     *  both target the ONE firmware slot. Previously each armed/disarmed it independently, so turning one
+     *  off disarmed a slot the other still wanted, and whichever ran last won the time. This is now the
+     *  SOLE caller of ble.armStrapAlarm / ble.disableStrapAlarm: it computes each feature's requested wake
+     *  epoch (null when that feature is off or has no valid firing day) and arms the slot to the EARLIEST
+     *  of the two, or disarms when neither wants it.
+     *
+     *  Needs the strap connected (if it isn't, send() logs "ignored, not connected" and the reconcile
+     *  takes effect next time you connect + change a setting; the bond-edge re-arm also calls this). */
+    private fun reconcileStrapAlarm() {
+        // Smart wake-alarm's requested time (honours weekdays + per-day overrides), or null when off /
+        // no valid firing day.
+        val smartEpoch = if (_smartAlarmEnabled.value) {
+            nextSmartAlarmEpochSec(
+                _smartAlarmMinutes.value,
+                _smartAlarmWeekdays.value,
+                dayOverrides = _smartAlarmDayOverrides.value,
+            )
+        } else null
+        // Buzz-WHOOP-4 companion's requested time: the phone alarm's EARLIEST wake time, next occurrence.
+        val buzzEpoch = if (_buzzWhoop4Enabled.value) {
+            nextDailyEpochSec(phoneAlarmStore.targetMinutes)
+        } else null
+
+        val epochSec = earliestStrapAlarmEpochSec(smartEpoch, buzzEpoch)
         if (epochSec == null) {
-            // No enabled weekday in the next week (only reachable from a corrupted set) — disarm rather
-            // than arm a misleading time the user never asked for. Mirrors macOS.
+            // Neither feature wants the slot (both off, or the smart set is corrupted), so disarm. Mirrors
+            // macOS's disarm-rather-than-arm-a-misleading-time stance.
             ble.disableStrapAlarm()
             return
         }
@@ -2034,3 +2035,38 @@ internal fun nextSmartAlarmEpochSec(
     }
     return null
 }
+
+/**
+ * Next strictly-future occurrence of a daily wake time (today, or tomorrow if already passed), as an
+ * epoch-second. Used for the "Buzz WHOOP 4/5" companion, which fires every day at the phone alarm's
+ * earliest wake time (no weekday selection). Pure + clock-injectable so it can be unit-tested.
+ */
+internal fun nextDailyEpochSec(
+    minuteOfDay: Int,
+    nowMs: Long = System.currentTimeMillis(),
+    calendarFactory: () -> java.util.Calendar = { java.util.Calendar.getInstance() },
+): Long {
+    val cal = calendarFactory().apply {
+        timeInMillis = nowMs
+        set(java.util.Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+        set(java.util.Calendar.MINUTE, minuteOfDay % 60)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+        if (timeInMillis <= nowMs) add(java.util.Calendar.DAY_OF_YEAR, 1)
+    }
+    return cal.timeInMillis / 1000
+}
+
+/**
+ * The strap has ONE firmware-alarm slot but two features can want it (#5): the smart wake-alarm and the
+ * "Buzz WHOOP 4/5" companion. Given each feature's requested wake epoch (null = that feature is off or
+ * has no valid firing day), return the EARLIEST that is non-null, or null when neither wants the slot.
+ * Pure so the clobber scenario (both on, turn one off → slot stays armed to the other's time) is unit-
+ * testable without the BLE stack.
+ */
+internal fun earliestStrapAlarmEpochSec(smartEpoch: Long?, buzzEpoch: Long?): Long? =
+    when {
+        smartEpoch == null -> buzzEpoch
+        buzzEpoch == null -> smartEpoch
+        else -> minOf(smartEpoch, buzzEpoch)
+    }
