@@ -106,7 +106,7 @@ struct WorkoutsView: View {
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
-                        ? "No workouts yet. They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in — or add one you tracked elsewhere."
+                        ? "No workouts yet. They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in, or add one you tracked elsewhere."
                         : "Loading your sessions…")
                     if loaded {
                         HStack(spacing: NoopMetrics.rowSpacing) { startLiveWorkoutButton; addWorkoutButton }
@@ -387,11 +387,14 @@ struct WorkoutsView: View {
     private func rangeCaption(rows: [WorkoutRow], effectiveRange: Range, fellBack: Bool) -> String {
         guard loaded, !allRows.isEmpty else { return "—" }
         let n = rows.count
-        let unit = n == 1 ? "session" : "sessions"
         if fellBack {
-            return "\(n) \(unit) · sparse — widened to \(effectiveRange.caption)"
+            return n == 1
+                ? String(localized: "1 session · sparse, widened to \(effectiveRange.caption)")
+                : String(localized: "\(n) sessions · sparse, widened to \(effectiveRange.caption)")
         }
-        return "\(n) \(unit) · \(effectiveRange.caption)"
+        return n == 1
+            ? String(localized: "1 session · \(effectiveRange.caption)")
+            : String(localized: "\(n) sessions · \(effectiveRange.caption)")
     }
 
     /// Pick the tightest range that still holds ≥2 sessions; otherwise show All.
@@ -479,14 +482,14 @@ struct WorkoutsView: View {
                 .font(StrandFont.headline)
                 .foregroundStyle(StrandPalette.textPrimary)
             HStack(spacing: NoopMetrics.gap) {
-                heroCountStat("Sessions", value: Double(rows.count),
+                heroCountStat(String(localized: "Sessions"), value: Double(rows.count),
                               format: { "\(Int($0.rounded()))" }, tint: StrandPalette.effortColor)
-                heroStat("Active", oneDecimal(totalTimeH) + "h", tint: StrandPalette.textPrimary)
-                heroStat("Top sport", modal.count > 0 ? "\(modal.count)×" : "—",
+                heroStat(String(localized: "Active"), String(localized: "\(oneDecimal(totalTimeH))h"), tint: StrandPalette.textPrimary)
+                heroStat(String(localized: "Top sport"), modal.count > 0 ? "\(modal.count)×" : "—",
                          tint: StrandPalette.effortBright)
             }
             Text(modal.count > 0
-                 ? "Mostly \(WorkoutSource.displaySport(modal.sport)) — \(effectiveRange.caption)."
+                 ? "Mostly \(WorkoutSource.displaySport(modal.sport)) (\(effectiveRange.caption))."
                  : "Logged sessions across \(effectiveRange.caption).")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -534,8 +537,8 @@ struct WorkoutsView: View {
                      caption: effectiveRange.caption,
                      accent: StrandPalette.effortColor)
             StatTile(label: "Total Time",
-                     value: oneDecimal(totalTimeH) + "h",
-                     caption: "active",
+                     value: String(localized: "\(oneDecimal(totalTimeH))h"),
+                     caption: String(localized: "active"),
                      accent: StrandPalette.textPrimary)
             StatTile(label: "Total Calories",
                      value: grouped(totalKcal),
@@ -543,11 +546,13 @@ struct WorkoutsView: View {
                      accent: StrandPalette.metricAmber)
             StatTile(label: "Total Distance",
                      value: UnitFormatter.distanceFromKilometers(totalKmRaw, system: unitSystem),
-                     caption: "covered",
+                     caption: String(localized: "covered"),
                      accent: StrandPalette.metricCyan)
             StatTile(label: "Most Active",
                      value: modal.sport,
-                     caption: modal.count > 0 ? "\(modal.count) session\(modal.count == 1 ? "" : "s")" : nil,
+                     caption: modal.count > 0
+                         ? (modal.count == 1 ? String(localized: "1 session") : String(localized: "\(modal.count) sessions"))
+                         : nil,
                      accent: StrandPalette.textPrimary)
         }
     }
@@ -558,7 +563,9 @@ struct WorkoutsView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Activity Breakdown",
                           overline: "By sport",
-                          trailing: "\(groups.count) sport\(groups.count == 1 ? "" : "s")")
+                          trailing: groups.count == 1
+                              ? String(localized: "1 sport")
+                              : String(localized: "\(groups.count) sports"))
             LazyVGrid(columns: breakdownColumns, alignment: .leading, spacing: NoopMetrics.gap) {
                 ForEach(groups) { g in
                     // This sport's own sessions, so the card can carry an HR-zone mini-bar.
@@ -592,10 +599,10 @@ struct WorkoutsView: View {
                 Divider().overlay(StrandPalette.hairline)
                 // Identical 4-up stat strip for every card.
                 HStack(spacing: 0) {
-                    miniStat("SESSIONS", "\(g.count)")
-                    miniStat("TIME", oneDecimal(g.totalTimeH) + "h")
-                    miniStat("KCAL", grouped(g.totalKcal), tint: StrandPalette.metricAmber)
-                    miniStat("AVG/SESS", "\(Int(g.avgTimePerSessionMin.rounded()))m")
+                    miniStat(String(localized: "SESSIONS"), "\(g.count)")
+                    miniStat(String(localized: "TIME"), String(localized: "\(oneDecimal(g.totalTimeH))h"))
+                    miniStat(String(localized: "KCAL"), grouped(g.totalKcal), tint: StrandPalette.metricAmber)
+                    miniStat(String(localized: "AVG/SESS"), String(localized: "\(Int(g.avgTimePerSessionMin.rounded()))m"))
                 }
             }
         }
@@ -623,7 +630,7 @@ struct WorkoutsView: View {
         .frame(height: 8)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Heart-rate zone split: " + (1...5).map { "zone \($0) \(Int((z.minutes[$0 - 1] / max(z.totalMinutes, 0.001) * 100).rounded())) percent" }.joined(separator: ", "))
+        .accessibilityLabel(String(localized: "Heart-rate zone split: \((1...5).map { String(localized: "zone \($0) \(Int((z.minutes[$0 - 1] / max(z.totalMinutes, 0.001) * 100).rounded())) percent") }.joined(separator: ", "))"))
     }
 
     private func miniStat(_ label: String, _ value: String, tint: Color = StrandPalette.textPrimary) -> some View {
@@ -644,7 +651,9 @@ struct WorkoutsView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("HR Zones",
                           overline: "Whoop import",
-                          trailing: "\(z.sessionsWithZones) of \(totalSessions) session\(totalSessions == 1 ? "" : "s")")
+                          trailing: totalSessions == 1
+                              ? String(localized: "\(z.sessionsWithZones) of 1 session")
+                              : String(localized: "\(z.sessionsWithZones) of \(totalSessions) sessions"))
             NoopCard(tint: StrandPalette.effortColor) {
                 VStack(alignment: .leading, spacing: 12) {
                     // Proportional stacked bar — same construction as SleepView's stage bar, with the
@@ -668,7 +677,7 @@ struct WorkoutsView: View {
                     .frame(height: 34)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Heart-rate zone split: " + (1...5).map { "zone \($0) \(Int((z.minutes[$0 - 1] / z.totalMinutes * 100).rounded())) percent" }.joined(separator: ", "))
+                    .accessibilityLabel(String(localized: "Heart-rate zone split: \((1...5).map { String(localized: "zone \($0) \(Int((z.minutes[$0 - 1] / z.totalMinutes * 100).rounded())) percent") }.joined(separator: ", "))"))
                     Divider().overlay(StrandPalette.hairline)
                     // 5-up stat strip, identical rhythm to the sport cards' miniStat row.
                     HStack(spacing: 0) {
@@ -676,7 +685,7 @@ struct WorkoutsView: View {
                             zoneStat(i + 1, minutes: z.minutes[i], total: z.totalMinutes)
                         }
                     }
-                    Text("Share of imported zone time, duration-weighted across sessions — approximate.")
+                    Text("Share of imported zone time, duration-weighted across sessions (approximate).")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
@@ -708,7 +717,7 @@ struct WorkoutsView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("All Sessions",
                           overline: "Log",
-                          trailing: "\(rows.count) total")
+                          trailing: String(localized: "\(rows.count) total"))
             NoopCard(padding: 0) {
                 // The fixed-width columns total well over an iPhone's width (more so since #796 added the
                 // EFFORT column) so on iOS the table scrolls horizontally instead of clipping the SPORT /
@@ -752,18 +761,18 @@ struct WorkoutsView: View {
 
     private var sessionHeaderRow: some View {
         HStack(spacing: 0) {
-            colHeader("DATE", width: ColWidth.date, align: .leading)
-            colHeader("SPORT", width: ColWidth.sport, align: .leading)
-            colHeader("DUR", width: ColWidth.duration, align: .trailing)
-            colHeader("AVG HR", width: ColWidth.hr, align: .trailing)
-            colHeader("KCAL", width: ColWidth.kcal, align: .trailing)
-            colHeader("DIST", width: ColWidth.dist, align: .trailing)
+            colHeader(String(localized: "DATE"), width: ColWidth.date, align: .leading)
+            colHeader(String(localized: "SPORT"), width: ColWidth.sport, align: .leading)
+            colHeader(String(localized: "DUR"), width: ColWidth.duration, align: .trailing)
+            colHeader(String(localized: "AVG HR"), width: ColWidth.hr, align: .trailing)
+            colHeader(String(localized: "KCAL"), width: ColWidth.kcal, align: .trailing)
+            colHeader(String(localized: "DIST"), width: ColWidth.dist, align: .trailing)
             // #796 - per-session Effort (the stored 0-100 strain this workout contributed to the day),
             // shown on the user's selected Effort scale. Same value the Effort ring and the detail's
             // Effort card read, surfaced per row so each session's effort is visible without opening it.
-            colHeader("EFFORT", width: ColWidth.effort, align: .trailing)
+            colHeader(String(localized: "EFFORT"), width: ColWidth.effort, align: .trailing)
             Spacer(minLength: 0)
-            colHeader("SOURCE", width: ColWidth.source, align: .trailing)
+            colHeader(String(localized: "SOURCE"), width: ColWidth.source, align: .trailing)
             // Empty header over the per-row "•••" actions menu column (keeps SOURCE aligned).
             Color.clear.frame(width: ColWidth.action)
         }
@@ -908,12 +917,12 @@ struct WorkoutsView: View {
     private func sourceBadge(_ source: String) -> some View {
         let (label, tint, a11y): (String, Color, String) = {
             switch WorkoutSource.classify(source) {
-            case .whoop:    return ("Whoop", StrandPalette.accent, "Source Whoop")
-            case .apple:    return ("Apple", StrandPalette.metricCyan, "Source Apple Health")
-            case .detected: return ("Detected", StrandPalette.metricPurple, "Source on-device detected")
-            case .manual:   return ("Manual", StrandPalette.statusWarning, "Source manual entry")
-            case .lifting:  return ("Lifting", StrandPalette.zone2, "Source imported lifting log")
-            case .activityFile: return ("File", StrandPalette.metricAmber, "Source imported activity file")
+            case .whoop:    return (String(localized: "Whoop"), StrandPalette.accent, String(localized: "Source Whoop"))
+            case .apple:    return (String(localized: "Apple"), StrandPalette.metricCyan, String(localized: "Source Apple Health"))
+            case .detected: return (String(localized: "Detected"), StrandPalette.metricPurple, String(localized: "Source on-device detected"))
+            case .manual:   return (String(localized: "Manual"), StrandPalette.statusWarning, String(localized: "Source manual entry"))
+            case .lifting:  return (String(localized: "Lifting"), StrandPalette.zone2, String(localized: "Source imported lifting log"))
+            case .activityFile: return (String(localized: "File"), StrandPalette.metricAmber, String(localized: "Source imported activity file"))
             }
         }()
         // String interpolation lifts the computed label into a LocalizedStringKey (SourceBadge's type).
@@ -970,30 +979,30 @@ struct WorkoutsView: View {
         case week, month, quarter, year, all
         var label: String {
             switch self {
-            case .week:    return "7D"
-            case .month:   return "30D"
-            case .quarter: return "90D"
-            case .year:    return "1Y"
-            case .all:     return "All"
+            case .week:    return String(localized: "7D")
+            case .month:   return String(localized: "30D")
+            case .quarter: return String(localized: "90D")
+            case .year:    return String(localized: "1Y")
+            case .all:     return String(localized: "All")
             }
         }
         var caption: String {
             switch self {
-            case .week:    return "last 7 days"
-            case .month:   return "last 30 days"
-            case .quarter: return "last 90 days"
-            case .year:    return "last year"
-            case .all:     return "all time"
+            case .week:    return String(localized: "last 7 days")
+            case .month:   return String(localized: "last 30 days")
+            case .quarter: return String(localized: "last 90 days")
+            case .year:    return String(localized: "last year")
+            case .all:     return String(localized: "all time")
             }
         }
         /// A short noun for the effort hero's "Effort this …" headline.
         var heroWord: String {
             switch self {
-            case .week:    return "week"
-            case .month:   return "month"
-            case .quarter: return "quarter"
-            case .year:    return "year"
-            case .all:     return "log"
+            case .week:    return String(localized: "week")
+            case .month:   return String(localized: "month")
+            case .quarter: return String(localized: "quarter")
+            case .year:    return String(localized: "year")
+            case .all:     return String(localized: "log")
             }
         }
         /// Trailing-window length in days, or nil for "all".
@@ -1050,8 +1059,8 @@ struct WorkoutsView: View {
         let total = Int(s.rounded())
         let h = total / 3600
         let m = (total % 3600) / 60
-        if h > 0 { return "\(h)h \(m)m" }
-        return "\(m)m"
+        if h > 0 { return String(localized: "\(h)h \(m)m") }
+        return String(localized: "\(m)m")
     }
 
     private func distanceLabel(_ m: Double?) -> String {

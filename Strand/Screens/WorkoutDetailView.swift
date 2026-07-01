@@ -154,7 +154,7 @@ struct WorkoutDetailView: View {
                   alignment: .leading, spacing: NoopMetrics.gap) {
             StatTile(label: "Duration",
                      value: durationLabel(row.durationS),
-                     caption: "active",
+                     caption: String(localized: "active"),
                      accent: StrandPalette.effortColor)
             StatTile(label: "Avg HR",
                      value: row.avgHr.map { "\($0)" } ?? "–",
@@ -171,7 +171,7 @@ struct WorkoutDetailView: View {
             if row.distanceM != nil {
                 StatTile(label: "Distance",
                          value: distanceLabel(row.distanceM),
-                         caption: "covered",
+                         caption: String(localized: "covered"),
                          accent: StrandPalette.metricCyan)
             }
         }
@@ -195,10 +195,10 @@ struct WorkoutDetailView: View {
                                                         style: .continuous))
                             .accessibilityLabel(routeAccessibilityLabel)
                         HStack(spacing: 0) {
-                            routeStat("Distance", distanceLabel(row.distanceM),
+                            routeStat(String(localized: "Distance"), distanceLabel(row.distanceM),
                                       tint: StrandPalette.metricCyan)
-                            routeStat("Avg pace", paceLabel, tint: StrandPalette.effortBright)
-                            routeStat("Points", "\(route.count)", tint: StrandPalette.textSecondary)
+                            routeStat(String(localized: "Avg pace"), paceLabel, tint: StrandPalette.effortBright)
+                            routeStat(String(localized: "Points"), "\(route.count)", tint: StrandPalette.textSecondary)
                         }
                         .padding(NoopMetrics.cardPadding)
                     }
@@ -239,7 +239,7 @@ struct WorkoutDetailView: View {
 
     private var routeAccessibilityLabel: String {
         let dist = distanceLabel(row.distanceM)
-        return "Map of your \(WorkoutSource.displaySport(row.sport)) route, \(dist)."
+        return String(localized: "Map of your \(WorkoutSource.displaySport(row.sport)) route, \(dist).")
     }
 
     // MARK: - HR curve
@@ -252,8 +252,8 @@ struct WorkoutDetailView: View {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 ChartCard(
                     title: "HEART RATE",
-                    subtitle: "Beats per minute across the session",
-                    trailing: row.avgHr.map { "avg \($0)" },
+                    subtitle: String(localized: "Beats per minute across the session"),
+                    trailing: row.avgHr.map { String(localized: "avg \($0)") },
                     tint: StrandPalette.effortColor
                 ) {
                     TrendChart(
@@ -261,15 +261,15 @@ struct WorkoutDetailView: View {
                         gradient: StrandPalette.effortGradient,
                         valueRange: lo...hi,
                         showsArea: true,
-                        valueFormat: { "\(Int($0.rounded())) bpm" },
+                        valueFormat: { String(localized: "\(Int($0.rounded())) bpm") },
                         dateFormat: { Self.tooltipTime.string(from: $0) },
-                        accessibilityLabel: "Heart rate during \(WorkoutSource.displaySport(row.sport))"
+                        accessibilityLabel: String(localized: "Heart rate during \(WorkoutSource.displaySport(row.sport))")
                     )
                 } footer: {
                     ChartFooter([
-                        ("Avg", row.avgHr.map { "\($0) bpm" } ?? "–"),
-                        ("Peak", row.maxHr.map { "\($0) bpm" } ?? "\(Int((values.max() ?? 0).rounded())) bpm"),
-                        ("Low", "\(Int((values.min() ?? 0).rounded())) bpm"),
+                        ("Avg", row.avgHr.map { String(localized: "\($0) bpm") } ?? "–"),
+                        ("Peak", row.maxHr.map { String(localized: "\($0) bpm") } ?? String(localized: "\(Int((values.max() ?? 0).rounded())) bpm")),
+                        ("Low", String(localized: "\(Int((values.min() ?? 0).rounded())) bpm")),
                     ])
                 }
                 // #18: the row's Avg HR can be EDITED on the manual sheet while the graph, zones and Effort
@@ -308,7 +308,7 @@ struct WorkoutDetailView: View {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 SectionHeader("HR Zones",
                               overline: zonesFromImport ? "Whoop import" : "From strap HR",
-                              trailing: "\(Int(total.rounded()))m in zone")
+                              trailing: String(localized: "\(Int(total.rounded()))m in zone"))
                 NoopCard(tint: StrandPalette.effortColor) {
                     VStack(alignment: .leading, spacing: 12) {
                         GeometryReader { geo in
@@ -329,9 +329,7 @@ struct WorkoutDetailView: View {
                         .frame(height: 34)
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Heart-rate zone split: " + (1...5).map {
-                            "zone \($0) \(Int((z[$0 - 1] / total * 100).rounded())) percent"
-                        }.joined(separator: ", "))
+                        .accessibilityLabel(String(localized: "Heart-rate zone split: \((1...5).map { String(localized: "zone \($0) \(Int((z[$0 - 1] / total * 100).rounded())) percent") }.joined(separator: ", "))"))
                         Divider().overlay(StrandPalette.hairline)
                         HStack(spacing: 0) {
                             ForEach(0..<5, id: \.self) { i in
@@ -340,7 +338,7 @@ struct WorkoutDetailView: View {
                         }
                         Text(zonesFromImport
                              ? "WHOOP's imported per-zone split for this session."
-                             : "Time in each %HRmax zone, derived from the strap's heart rate over this window — approximate.")
+                             : "Time in each %HRmax zone, derived from the strap's heart rate over this window (approximate).")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                     }
@@ -407,12 +405,12 @@ struct WorkoutDetailView: View {
     private func sourceBadge(_ source: String) -> some View {
         let (label, tint): (String, Color) = {
             switch WorkoutSource.classify(source) {
-            case .whoop:    return ("Whoop", StrandPalette.accent)
-            case .apple:    return ("Apple", StrandPalette.metricCyan)
-            case .detected: return ("Detected", StrandPalette.metricPurple)
-            case .manual:   return ("Manual", StrandPalette.statusWarning)
-            case .lifting:  return ("Lifting", StrandPalette.zone2)
-            case .activityFile: return ("File", StrandPalette.metricAmber)
+            case .whoop:    return (String(localized: "Whoop"), StrandPalette.accent)
+            case .apple:    return (String(localized: "Apple"), StrandPalette.metricCyan)
+            case .detected: return (String(localized: "Detected"), StrandPalette.metricPurple)
+            case .manual:   return (String(localized: "Manual"), StrandPalette.statusWarning)
+            case .lifting:  return (String(localized: "Lifting"), StrandPalette.zone2)
+            case .activityFile: return (String(localized: "File"), StrandPalette.metricAmber)
             }
         }()
         return SourceBadge("\(label)", tint: tint)
@@ -452,8 +450,8 @@ struct WorkoutDetailView: View {
         guard let s, s > 0 else { return "–" }
         let total = Int(s.rounded())
         let h = total / 3600, m = (total % 3600) / 60
-        if h > 0 { return "\(h)h \(m)m" }
-        return "\(m)m"
+        if h > 0 { return String(localized: "\(h)h \(m)m") }
+        return String(localized: "\(m)m")
     }
     private func distanceLabel(_ m: Double?) -> String {
         guard let m, m > 0 else { return "–" }
@@ -513,8 +511,8 @@ struct WorkoutRouteMap: RouteMapRepresentable {
         let line = MKPolyline(coordinates: coords, count: coords.count)
         map.addOverlay(line)
 
-        let start = MKPointAnnotation(); start.coordinate = coords.first!; start.title = "Start"
-        let end = MKPointAnnotation(); end.coordinate = coords.last!; end.title = "Finish"
+        let start = MKPointAnnotation(); start.coordinate = coords.first!; start.title = String(localized: "Start")
+        let end = MKPointAnnotation(); end.coordinate = coords.last!; end.title = String(localized: "Finish")
         map.addAnnotations([start, end])
 
         // Frame the whole route with a little padding so the line isn't flush to the edges.

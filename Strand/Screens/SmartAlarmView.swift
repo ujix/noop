@@ -252,7 +252,7 @@ struct SmartAlarmView: View {
                 Text("Different wake time per day")
                     .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text("Set a wake time for specific days — a lie-in at the weekend, say. Days you leave alone use the time above.")
+                Text("Set a wake time for specific days (a lie-in at the weekend, say). Days you leave alone use the time above.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -335,8 +335,10 @@ struct SmartAlarmView: View {
 
     /// Full weekday name for a Calendar weekday number (1=Sun…7=Sat).
     private static func weekdayName(_ dow: Int) -> String {
-        let names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        return (1...7).contains(dow) ? names[dow - 1] : "Day \(dow)"
+        let names = [String(localized: "Sunday"), String(localized: "Monday"), String(localized: "Tuesday"),
+                     String(localized: "Wednesday"), String(localized: "Thursday"), String(localized: "Friday"),
+                     String(localized: "Saturday")]
+        return (1...7).contains(dow) ? names[dow - 1] : String(localized: "Day \(dow)")
     }
 
     // Bridges the minutes-since-midnight store to a DatePicker's Date, persisting + rescheduling.
@@ -429,34 +431,29 @@ struct SmartAlarmView: View {
 
     /// Human-readable summary of the selection.
     nonisolated static func alarmWeekdaySummary(_ days: Set<Int>) -> String {
-        if days.isEmpty || days.count == 7 { return "Every day" }
-        if days == Set(2...6) { return "Weekdays" }
-        if days == Set([1, 7]) { return "Weekends" }
+        if days.isEmpty || days.count == 7 { return String(localized: "Every day") }
+        if days == Set(2...6) { return String(localized: "Weekdays") }
+        if days == Set([1, 7]) { return String(localized: "Weekends") }
         return weekdayOrder.filter { days.contains($0) }.map { alarmWeekdayShort($0) }.joined(separator: ", ")
     }
 
+    /// One-letter day chip. Derived from the localized short name so the initials follow the
+    /// language (and Tue/Thu or Sat/Sun never share a single collision-prone key). English output
+    /// is byte-identical to the old hardcoded initials.
     private static func alarmWeekdayInitial(_ dow: Int) -> String {
-        switch dow {
-        case 1: return "S"
-        case 2: return "M"
-        case 3: return "T"
-        case 4: return "W"
-        case 5: return "T"
-        case 6: return "F"
-        case 7: return "S"
-        default: return "?"
-        }
+        let short = alarmWeekdayShort(dow)
+        return short == "?" ? "?" : String(short.prefix(1))
     }
 
     nonisolated private static func alarmWeekdayShort(_ dow: Int) -> String {
         switch dow {
-        case 1: return "Sun"
-        case 2: return "Mon"
-        case 3: return "Tue"
-        case 4: return "Wed"
-        case 5: return "Thu"
-        case 6: return "Fri"
-        case 7: return "Sat"
+        case 1: return String(localized: "Sun")
+        case 2: return String(localized: "Mon")
+        case 3: return String(localized: "Tue")
+        case 4: return String(localized: "Wed")
+        case 5: return String(localized: "Thu")
+        case 6: return String(localized: "Fri")
+        case 7: return String(localized: "Sat")
         default: return "?"
         }
     }

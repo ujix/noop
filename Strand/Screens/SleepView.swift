@@ -235,7 +235,7 @@ struct SleepView: View {
         let score = model.performance.latest
         let frac = heroScoreFraction(model)
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Sleep performance", overline: "Last night", trailing: "Rest")
+            SectionHeader("Sleep performance", overline: "Last night", trailing: String(localized: "Rest"))
             // A subtle night atmosphere sits behind the sleep hero ONLY (the Rest world's whisper:
             // faint indigo wash + crescent moon over the near-black canvas, no glow), clipped to the
             // card. Replaces the now-flat ScenicHeroBackground here.
@@ -246,7 +246,7 @@ struct SleepView: View {
                         stops: StrandPalette.restGradient.stops,
                         tipColor: StrandPalette.restColor,
                         numberText: "\(Int(score.rounded()))",
-                        captionText: "of 100",
+                        captionText: String(localized: "of 100"),
                         stateText: sleepScoreWord(score),
                         diameter: 184,
                         lineWidth: 15,
@@ -284,10 +284,10 @@ struct SleepView: View {
     /// A short Rest state word for the hero gauge — same banding the synthesis hero uses.
     private func sleepScoreWord(_ score: Double) -> String {
         switch score {
-        case ..<50:  return "Poor"
-        case ..<70:  return "Fair"
-        case ..<85:  return "Good"
-        default:     return "Optimal"
+        case ..<50:  return String(localized: "Poor")
+        case ..<70:  return String(localized: "Fair")
+        case ..<85:  return String(localized: "Good")
+        default:     return String(localized: "Optimal")
         }
     }
 
@@ -311,7 +311,7 @@ struct SleepView: View {
     /// carries no sleep into `importedSleep`, so the sleep merge winner is only ever Whoop vs on-device. (C4)
     private func nightSource(_ night: Night) -> String {
         let wakeDay = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(night.session.endTs)))
-        return repo.importedSleep[wakeDay] != nil ? "Whoop" : "On-device"
+        return repo.importedSleep[wakeDay] != nil ? String(localized: "Whoop") : String(localized: "On-device")
     }
 
     // MARK: - 0b. SLEEP MARKS — tap to log "going to sleep" / "I'm awake" (#461, Phase 1)
@@ -350,7 +350,7 @@ struct SleepView: View {
                 sleepWindowRow(stub)
                 ChartCard(
                     title: "Stage breakdown",
-                    subtitle: "\(durationText(Double(session.endTs - session.startTs) / 60.0)) in bed",
+                    subtitle: String(localized: "\(durationText(Double(session.endTs - session.startTs) / 60.0)) in bed"),
                     height: NoopMetrics.chartHeight,
                     tint: StrandPalette.restColor,
                     chart: { noStagePlaceholder }
@@ -505,8 +505,9 @@ struct SleepView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             ChartCard(
                 title: "Stage breakdown",
-                subtitle: "\(durationText(night.timeInBed)) in bed · \(efficiencyText(night)) efficiency"
-                    + (isPersisted ? " · stages approximate (on-device)" : ""),
+                subtitle: isPersisted
+                    ? String(localized: "\(durationText(night.timeInBed)) in bed · \(efficiencyText(night)) efficiency · stages approximate (on-device)")
+                    : String(localized: "\(durationText(night.timeInBed)) in bed · \(efficiencyText(night)) efficiency"),
                 trailing: durationText(s.asleep),
                 height: NoopMetrics.chartHeight,
                 tint: StrandPalette.restColor,
@@ -621,7 +622,7 @@ struct SleepView: View {
     private var stageLowConfidenceNote: some View {
         HStack(alignment: .top, spacing: 8) {
             SourceBadge("Low confidence", tint: StrandPalette.statusWarning)
-            Text("This night scored high efficiency but very little deep or REM — more likely a staging estimate miss than a real restorative shortfall. The totals are kept as-is; read the split with care.")
+            Text("This night scored high efficiency but very little deep or REM, more likely a staging estimate miss than a real restorative shortfall. The totals are kept as-is; read the split with care.")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -787,10 +788,10 @@ struct SleepView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Sleep stage breakdown: deep \(pct(s.deep, s.total)) percent, light \(pct(s.light, s.total)) percent, REM \(pct(s.rem, s.total)) percent, awake \(pct(s.awake, s.total)) percent")
             HStack(spacing: 16) {
-                legend(.deep, "Deep")
-                legend(.light, "Light")
-                legend(.rem, "REM")
-                legend(.awake, "Awake")
+                legend(.deep, String(localized: "Deep"))
+                legend(.light, String(localized: "Light"))
+                legend(.rem, String(localized: "REM"))
+                legend(.awake, String(localized: "Awake"))
             }
             Spacer(minLength: 0)
         }
@@ -878,7 +879,7 @@ struct SleepView: View {
         let debt  = model.sleepDebt
 
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Night detail", overline: "Metrics", trailing: "vs typical")
+            SectionHeader("Night detail", overline: "Metrics", trailing: String(localized: "vs typical"))
             LazyVGrid(columns: tileColumns, alignment: .leading, spacing: NoopMetrics.gap) {
 
                 StatTile(
@@ -952,10 +953,10 @@ struct SleepView: View {
         let ledger = model.sleepDebtLedger
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Sleep-debt ledger", overline: "Last 14 nights",
-                          trailing: "running balance")
+                          trailing: String(localized: "running balance"))
             NoopCard(tint: StrandPalette.restColor) {
                 if ledger.nightCount == 0 {
-                    Text("No nights with sleep data yet — your ledger fills in as you wear the strap to bed.")
+                    Text("No nights with sleep data yet. Your ledger fills in as you wear the strap to bed.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1039,14 +1040,14 @@ struct SleepView: View {
         // over repo.days) and read here.
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Stages vs typical", overline: "Last night",
-                          trailing: "hatch = typical")
+                          trailing: String(localized: "hatch = typical"))
             NoopCard(tint: StrandPalette.restColor) {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                    stageRow(stage: "Deep",  last: s.deep,  typical: model.typicalDeepMin,  nightTotal: s.total, color: StrandPalette.sleepDeep)
+                    stageRow(stage: String(localized: "Deep"),  last: s.deep,  typical: model.typicalDeepMin,  nightTotal: s.total, color: StrandPalette.sleepDeep)
                     Divider().overlay(StrandPalette.hairline)
-                    stageRow(stage: "REM",   last: s.rem,   typical: model.typicalRemMin,   nightTotal: s.total, color: StrandPalette.sleepREM)
+                    stageRow(stage: String(localized: "REM"),   last: s.rem,   typical: model.typicalRemMin,   nightTotal: s.total, color: StrandPalette.sleepREM)
                     Divider().overlay(StrandPalette.hairline)
-                    stageRow(stage: "Light", last: s.light, typical: model.typicalLightMin, nightTotal: s.total, color: StrandPalette.sleepLight)
+                    stageRow(stage: String(localized: "Light"), last: s.light, typical: model.typicalLightMin, nightTotal: s.total, color: StrandPalette.sleepLight)
                 }
             }
         }
@@ -1070,7 +1071,7 @@ struct SleepView: View {
             guard let typical, typical > 0 else { return "" }
             let diff = last - typical
             let sign = diff >= 0 ? "+" : "−"
-            return "\(sign)\(durationText(abs(diff))) vs typ"
+            return String(localized: "\(sign)\(durationText(abs(diff))) vs typ")
         }()
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1122,8 +1123,16 @@ struct SleepView: View {
             }
             .frame(height: 10)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label): \(durationText(last)) last night, \(sharePct) percent of the night\(typical.map { ", typical \(durationText($0))" } ?? "")")
+            .accessibilityLabel(stageRowAccessibilityLabel(label: label, last: last, sharePct: sharePct, typical: typical))
         }
+    }
+
+    /// Whole-string VoiceOver label for a stage row: one key per variant, never a stitched tail fragment.
+    private func stageRowAccessibilityLabel(label: String, last: Double, sharePct: Int, typical: Double?) -> String {
+        if let typical, typical > 0 {
+            return String(localized: "\(label): \(durationText(last)) last night, \(sharePct) percent of the night, typical \(durationText(typical))")
+        }
+        return String(localized: "\(label): \(durationText(last)) last night, \(sharePct) percent of the night")
     }
 
     // MARK: - 4. 30-day asleep-hours trend
@@ -1135,11 +1144,11 @@ struct SleepView: View {
         let pts = model.trendPoints
         let avg = model.typicalTotalMin.map { $0 / 60.0 }
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Asleep duration", overline: "Trend", trailing: "Last 30 days")
+            SectionHeader("Asleep duration", overline: "Trend", trailing: String(localized: "Last 30 days"))
             ChartCard(
                 title: "Hours asleep",
-                subtitle: "Per night, trailing 30 days",
-                trailing: avg.map { String(format: "%.1f h avg", $0) },
+                subtitle: String(localized: "Per night, trailing 30 days"),
+                trailing: avg.map { String(localized: "\(String(format: "%.1f", $0)) h avg") },
                 height: NoopMetrics.chartHeight,
                 tint: StrandPalette.restColor,
                 chart: {
@@ -1150,7 +1159,7 @@ struct SleepView: View {
                                    showsArea: true,
                                    height: NoopMetrics.chartHeight,
                                    valueFormat: { String(format: "%.1f h", $0) },
-                                   accessibilityLabel: "Hours asleep trend")
+                                   accessibilityLabel: String(localized: "Hours asleep trend"))
                     } else {
                         sparsePlaceholder
                     }
@@ -1326,13 +1335,13 @@ struct SleepView: View {
         let dur = durationText(sel.asleepMinutes)
         switch sel.reason {
         case .onlyBlock:
-            return "This is your only sleep block today."
+            return String(localized: "This is your only sleep block today.")
         case .longest:
-            return "Picked as your main sleep because it was your longest block (\(dur))."
+            return String(localized: "Picked as your main sleep because it was your longest block (\(dur)).")
         case .longestNearUsual:
-            return "Picked as your main sleep because it was your longest block (\(dur)), near your usual bedtime."
+            return String(localized: "Picked as your main sleep because it was your longest block (\(dur)), near your usual bedtime.")
         case .alignedToUsual:
-            return "Picked as your main sleep because it started near your usual sleep time."
+            return String(localized: "Picked as your main sleep because it started near your usual sleep time.")
         }
     }
 
@@ -1708,17 +1717,17 @@ struct SleepView: View {
 
     /// "+12% vs typical" / "−0.4 rpm vs typical" — the latest-vs-mean caption every tile carries.
     private func vsTypical(_ latest: Double?, _ typical: Double?, suffix: String, decimals: Int = 0) -> String {
-        guard let latest, let typical, typical != 0 else { return "vs typical —" }
+        guard let latest, let typical, typical != 0 else { return String(localized: "vs typical —") }
         let diff = latest - typical
         let sign = diff >= 0 ? "+" : "−"
         let mag = abs(diff)
         let num = decimals == 0 ? "\(Int(mag.rounded()))" : String(format: "%.\(decimals)f", mag)
-        return "\(sign)\(num)\(suffix) vs typical"
+        return String(localized: "\(sign)\(num)\(suffix) vs typical")
     }
 
     private func debtCaption(_ debt: Double?) -> String {
-        guard let debt else { return "vs need" }
-        return debt < 15 ? "On target" : "Below need"
+        guard let debt else { return String(localized: "vs need") }
+        return debt < 15 ? String(localized: "On target") : String(localized: "Below need")
     }
 
     private func debtColor(_ debt: Double?) -> Color {
@@ -1743,28 +1752,30 @@ struct SleepView: View {
     /// uses the LIVE magnitude `m` so the headline crosses from "On target" to "≈…" mid-count exactly
     /// once, matching the final reading. Final-value identical to `debtHeadline(_:)`.
     private func debtHeadline(forMagnitudeMin m: Double, ledger: SleepDebtLedger) -> String {
-        if m < SleepDebt.onTargetBandMin { return "On target" }
+        if m < SleepDebt.onTargetBandMin { return String(localized: "On target") }
         return "≈\(durationText(m))"
     }
 
     /// Short tag under/beside the headline: DEBT / SURPLUS / ON TARGET.
     private func debtTag(_ ledger: SleepDebtLedger) -> String {
-        if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return "balanced" }
-        return ledger.isDebt ? "sleep debt" : "surplus"
+        if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return String(localized: "balanced") }
+        return ledger.isDebt ? String(localized: "sleep debt") : String(localized: "surplus")
     }
 
     /// Plain-English read of the running balance over the window.
     private func debtRead(_ ledger: SleepDebtLedger) -> String {
         let nights = ledger.nightCount
-        let span = "the last \(nights) night\(nights == 1 ? "" : "s")"
+        let span = nights == 1
+            ? String(localized: "the last night")
+            : String(localized: "the last \(nights) nights")
         if ledger.magnitudeMin < SleepDebt.onTargetBandMin {
-            return "You're roughly on top of your sleep across \(span) — slept minutes balance out against your need."
+            return String(localized: "You're roughly on top of your sleep across \(span). Slept minutes balance out against your need.")
         }
         let mag = durationText(ledger.magnitudeMin)
         if ledger.isDebt {
-            return "You've banked about \(mag) of sleep debt over \(span). Surplus nights count back against it — an earlier night or two would clear it."
+            return String(localized: "You've banked about \(mag) of sleep debt over \(span). Surplus nights count back against it. An earlier night or two would clear it.")
         }
-        return "You're carrying about \(mag) of surplus over \(span) — you've slept past your need on balance. Nicely ahead."
+        return String(localized: "You're carrying about \(mag) of surplus over \(span). You've slept past your need on balance. Nicely ahead.")
     }
 
     /// Color the balance by sign + size: surplus/within-band → positive green, modest
@@ -1779,7 +1790,7 @@ struct SleepView: View {
 
     /// Signed "+1h 20m" / "−2h 10m" / "0m" balance string.
     private func debtSigned(_ minutes: Double) -> String {
-        if abs(minutes) < 1 { return "0m" }
+        if abs(minutes) < 1 { return String(localized: "0m") }
         let sign = minutes >= 0 ? "+" : "−"
         return "\(sign)\(durationText(abs(minutes)))"
     }
@@ -1801,8 +1812,8 @@ struct SleepView: View {
 
     private func durationText(_ minutes: Double) -> String {
         let m = Swift.max(0, Int(minutes.rounded()))
-        if m < 60 { return "\(m)m" }
-        return "\(m / 60)h \(m % 60)m"
+        if m < 60 { return String(localized: "\(m)m") }
+        return String(localized: "\(m / 60)h \(m % 60)m")
     }
 
     /// A sparkline needs at least two points; otherwise return nil so the tile stays clean.
@@ -1900,10 +1911,10 @@ private struct SleepMarkCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Sleep marks", overline: "Tap to log", trailing: "Phase 1")
+            SectionHeader("Sleep marks", overline: "Tap to log", trailing: String(localized: "Phase 1"))
             NoopCard(tint: StrandPalette.restColor) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    Text("Tap when you're heading to bed or when you wake. Each tap is logged with the time — it doesn't change tonight's detected sleep.")
+                    Text("Tap when you're heading to bed or when you wake. Each tap is logged with the time. It doesn't change tonight's detected sleep.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)

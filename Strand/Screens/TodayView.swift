@@ -580,8 +580,10 @@ struct TodayView: View {
     /// reads "Latest sleep · <date>" so a weeks-old import is never surfaced as "Last night". Shared by every
     /// carried recovery read-out so the prior-day provenance reads identically. Mirror EXACTLY in Kotlin.
     static func carriedCaption(priorDayKey: String, todayKey: String) -> String {
-        let prefix = isCarryStale(priorDayKey: priorDayKey, todayKey: todayKey) ? "Latest sleep" : "Last night"
-        return "\(prefix) · \(lastChargeDateFmt(priorDayKey))"
+        let date = lastChargeDateFmt(priorDayKey)
+        return isCarryStale(priorDayKey: priorDayKey, todayKey: todayKey)
+            ? String(localized: "Latest sleep · \(date)")
+            : String(localized: "Last night · \(date)")
     }
 
     /// Instance convenience over the pure `carriedCaption`. `selectedDayKey` is today's logical-day key in
@@ -649,10 +651,10 @@ struct TodayView: View {
     /// shows no readiness word, matching the old card hiding itself). Mirror EXACTLY in Kotlin.
     static func readinessWord(_ level: ReadinessEngine.Level) -> String? {
         switch level {
-        case .primed:       return "Push"
-        case .balanced:     return "Maintain"
-        case .strained:     return "Rest"
-        case .rundown:      return "Rest"
+        case .primed:       return String(localized: "Push")
+        case .balanced:     return String(localized: "Maintain")
+        case .strained:     return String(localized: "Rest")
+        case .rundown:      return String(localized: "Rest")
         case .insufficient: return nil
         }
     }
@@ -913,8 +915,8 @@ struct TodayView: View {
     /// The day-nav label: relative for today/yesterday, else a short date.
     private var dayNavLabel: String {
         switch selectedDayOffset {
-        case 0:  return "Today"
-        case 1:  return "Yesterday"
+        case 0:  return String(localized: "Today")
+        case 1:  return String(localized: "Yesterday")
         default:
             // Anchor to the LOGICAL day, not raw Date(), so the a11y date label agrees with the visible
             // date and the picker highlight in the 00:00-04:00 window (a raw Date() reads a calendar day
@@ -1207,8 +1209,8 @@ struct TodayView: View {
                             todayCardDismissButton {
                                 dismissTodayCard(
                                     id: "scoresBuilding",
-                                    title: "Live now. Your scores are building.",
-                                    message: "Charge, Effort and Rest build over your next few nights of wear."
+                                    title: String(localized: "Live now. Your scores are building."),
+                                    message: String(localized: "Charge, Effort and Rest build over your next few nights of wear.")
                                 )
                             }
                         }
@@ -1332,8 +1334,8 @@ struct TodayView: View {
                         .foregroundStyle(StrandPalette.metricRose)
                         .attentionWiggle(period: 4)
                 }
-                .help("Support NOOP — donate or get in touch")
-                .accessibilityLabel("Support NOOP — donate or get in touch")
+                .help("Support NOOP: donate or get in touch")
+                .accessibilityLabel("Support NOOP: donate or get in touch")
             }
             // The Updates "ringer" on the TRAILING (top-right) edge, separated from the heart (iOS hosts
             // it in the compact top bar instead).
@@ -1442,7 +1444,7 @@ struct TodayView: View {
                     Text("New here?")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("See how Charge, Effort and Rest are calculated — and how they differ from WHOOP.")
+                    Text("See how Charge, Effort and Rest are calculated, and how they differ from WHOOP.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1463,8 +1465,8 @@ struct TodayView: View {
                     withAnimation(StrandMotion.interactive) {
                         dismissTodayCard(
                             id: "newHere",
-                            title: "New here?",
-                            message: "How Charge, Effort and Rest are calculated — and how they differ from WHOOP."
+                            title: String(localized: "New here?"),
+                            message: String(localized: "How Charge, Effort and Rest are calculated, and how they differ from WHOOP.")
                         )
                     }
                 } label: {
@@ -1512,7 +1514,7 @@ struct TodayView: View {
                         Text("Support NOOP")
                             .font(StrandFont.headline)
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Donate or get in touch — totally optional.")
+                        Text("Donate or get in touch. Totally optional.")
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1527,7 +1529,7 @@ struct TodayView: View {
         }
         // Press-down feedback for the full-card button surface.
         .buttonStyle(StrandPressableButtonStyle())
-        .accessibilityLabel("Support NOOP — donate or get in touch")
+        .accessibilityLabel("Support NOOP: donate or get in touch")
     }
     #endif
 
@@ -1605,20 +1607,20 @@ struct TodayView: View {
     // alone, read by VoiceOver and visible to colour-blind users.
     private func levelWord(_ l: ReadinessEngine.Level) -> String {
         switch l {
-        case .primed:       return "Primed"
-        case .balanced:     return "Balanced"
-        case .strained:     return "Strained"
-        case .rundown:      return "Run down"
-        case .insufficient: return "Not enough data"
+        case .primed:       return String(localized: "Primed")
+        case .balanced:     return String(localized: "Balanced")
+        case .strained:     return String(localized: "Strained")
+        case .rundown:      return String(localized: "Run down")
+        case .insufficient: return String(localized: "Not enough data")
         }
     }
 
     private func flagWord(_ f: ReadinessEngine.Flag) -> String {
         switch f {
-        case .good:    return "Good"
-        case .neutral: return "Neutral"
-        case .watch:   return "Watch"
-        case .bad:     return "Alert"
+        case .good:    return String(localized: "Good")
+        case .neutral: return String(localized: "Neutral")
+        case .watch:   return String(localized: "Watch")
+        case .bad:     return String(localized: "Alert")
         }
     }
 
@@ -1688,8 +1690,8 @@ struct TodayView: View {
                         todayCardDismissButton {
                             dismissTodayCard(
                                 id: "calibratingBaseline",
-                                title: "Building your baseline",
-                                message: "Charge, Effort and Rest become personal after a few nights of wear."
+                                title: String(localized: "Building your baseline"),
+                                message: String(localized: "Charge, Effort and Rest become personal after a few nights of wear.")
                             )
                         }
                     }
@@ -1706,7 +1708,7 @@ struct TodayView: View {
     private func chargeCalibrationCountdown(banked: Int) -> some View {
         let remaining = max(1, Baselines.minNightsSeed - banked)
         let countdown = ChargeBreakdownFormat.calibrationCountdown(nightsRemaining: remaining)
-        let unlock = ChargeBreakdownFormat.calibrationUnlockCopy(scoreName: "Charge")
+        let unlock = ChargeBreakdownFormat.calibrationUnlockCopy(scoreName: String(localized: "Charge"))
         let progress = ChargeBreakdownFormat.calibrationProgress(banked: banked, seed: Baselines.minNightsSeed)
         NoopCard(padding: 14, tint: StrandPalette.chargeColor) {
             HStack(alignment: .top, spacing: 12) {
@@ -2396,8 +2398,9 @@ struct TodayView: View {
     /// bindings (no new computation beyond the baseline mean already available on `repo.days`).
     private func hrvInsightStatus(_ d: DailyMetric?, score: Double?) -> String {
         guard let pct = hrvBaselineDeltaPct(d) else { return synthesisWord(score) }
-        let sign = pct >= 0 ? "over" : "under"
-        return "HRV \(abs(pct))% \(sign) baseline"
+        return pct >= 0
+            ? String(localized: "HRV \(abs(pct))% over baseline")
+            : String(localized: "HRV \(abs(pct))% under baseline")
     }
 
     /// The supporting line for the screen-4 insight: the primed/steady read tied to the HRV delta,
@@ -2405,9 +2408,9 @@ struct TodayView: View {
     private func hrvInsightDetail(_ d: DailyMetric?, score: Double?) -> String {
         guard let pct = hrvBaselineDeltaPct(d) else { return synthesisDetail(d) }
         let lead: String
-        if pct >= 8 { lead = "Your nervous system is well-recovered — you're primed to push" }
-        else if pct >= -8 { lead = "You're in balance with your baseline — moderate strain is well-judged" }
-        else { lead = "HRV is below your baseline — ease into the day" }
+        if pct >= 8 { lead = String(localized: "Your nervous system is well-recovered, so you're primed to push") }
+        else if pct >= -8 { lead = String(localized: "You're in balance with your baseline, so moderate strain is well-judged") }
+        else { lead = String(localized: "HRV is below your baseline, so ease into the day") }
         return lead + ". " + synthesisDetail(d)
     }
 
@@ -2739,7 +2742,7 @@ struct TodayView: View {
     /// own overlay, a past day isn't annotated).
     private var effortZeroNote: String? {
         guard selectedDayOffset == 0, let s = effortStrain(displayDay), s < 1.0 else { return nil }
-        return "No cardio load yet — Effort builds once your heart rate climbs into your effort zone (around 50% of your heart-rate reserve). A calm day honestly reads near zero."
+        return String(localized: "No cardio load yet. Effort builds once your heart rate climbs into your effort zone (around 50% of your heart-rate reserve). A calm day honestly reads near zero.")
     }
 
     /// Strain value to feed the Effort gauge, on the SELECTED display scale (#313). The effective
@@ -2798,8 +2801,8 @@ struct TodayView: View {
                 SectionHeader("Heart Rate", overline: "\(selectedDayOverline)")
                 ChartCard(
                     title: "Beats per minute",
-                    subtitle: selectedDayOffset == 0 ? "5-minute average · since midnight" : "5-minute average · selected day",
-                    trailing: v.last.map { "\(Int($0.rounded())) bpm" },
+                    subtitle: selectedDayOffset == 0 ? String(localized: "5-minute average · since midnight") : String(localized: "5-minute average · selected day"),
+                    trailing: v.last.map { String(localized: "\(Int($0.rounded())) bpm") },
                     tint: StrandPalette.metricRose
                 ) {
                     OverviewHRChart(
@@ -2817,7 +2820,7 @@ struct TodayView: View {
                         // points at full resolution while zoomed.
                         zoomDomain: $hrZoomDomain,
                         zoomBounds: hrAxis,
-                        valueFormat: { "\(Int($0.rounded())) bpm" },
+                        valueFormat: { String(localized: "\(Int($0.rounded())) bpm") },
                         dateFormat: { Self.hrTimeFmt.string(from: $0) }
                     )
                     // #829 follow-up: publish the chart's frame (in the shared day-swipe space) so the
@@ -2853,8 +2856,8 @@ struct TodayView: View {
                 ChartCard(
                     title: "Beats per minute",
                     subtitle: selectedDayOffset == 0
-                        ? "Calibrating , no heart rate banked yet today"
-                        : "No heart rate for this day",
+                        ? String(localized: "Calibrating, no heart rate banked yet today")
+                        : String(localized: "No heart rate for this day"),
                     trailing: nil,
                     tint: StrandPalette.metricRose
                 ) {
@@ -2975,7 +2978,7 @@ struct TodayView: View {
         let at = sleepToday.map { Date(timeIntervalSince1970: TimeInterval($0.endTs)) }
             ?? hrPoints.first?.date
         guard let date = at else { return nil }
-        return .init(date: date, label: "\(Int(rec.rounded()))% Charge",
+        return .init(date: date, label: String(localized: "\(Int(rec.rounded()))% Charge"),
                      color: StrandPalette.recoveryColor(rec), alignment: .leading)
     }
 
@@ -2986,7 +2989,7 @@ struct TodayView: View {
     private var effortMarker: OverviewHRChart.EdgeMarker? {
         guard let strain = displayDay?.strain, let date = hrPoints.last?.date else { return nil }
         return .init(date: date,
-                     label: "\(UnitFormatter.effortDisplay(strain, scale: effortScale)) Effort",
+                     label: String(localized: "\(UnitFormatter.effortDisplay(strain, scale: effortScale)) Effort"),
                      color: StrandPalette.effortTint(fraction: strain / StrainScorer.maxStrain), alignment: .trailing)
     }
 
@@ -2998,7 +3001,7 @@ struct TodayView: View {
             // The section header keeps its "14-day trend" trailing label; an Edit control sits beside it
             // to open the local layout editor (#251). No new nav destination, a sheet over Today.
             HStack(alignment: .firstTextBaseline) {
-                SectionHeader("Key Metrics", overline: "\(selectedDayOverline)", trailing: "14-day trend")
+                SectionHeader("Key Metrics", overline: "\(selectedDayOverline)", trailing: String(localized: "14-day trend"))
                 Button {
                     showingMetricsEditor = true
                 } label: {
@@ -3136,8 +3139,8 @@ struct TodayView: View {
             StatTile(
                 label: "Effort",
                 value: d?.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
-                caption: d?.strain != nil ? "of \(UnitFormatter.effortScaleMax(effortScale))"
-                                          : (buildingHint(.effort) ?? "of \(UnitFormatter.effortScaleMax(effortScale))"),
+                caption: d?.strain != nil ? String(localized: "of \(UnitFormatter.effortScaleMax(effortScale))")
+                                          : (buildingHint(.effort) ?? String(localized: "of \(UnitFormatter.effortScaleMax(effortScale))")),
                 accent: d?.strain.map { StrandPalette.effortTint(fraction: $0 / StrainScorer.maxStrain) } ?? StrandPalette.textPrimary,
                 sparkline: sparks["strain"],
                 sparkColor: StrandPalette.strain066,
@@ -3243,9 +3246,9 @@ struct TodayView: View {
                 // An estimated day reads "est." plus the calibration STATUS (k / days / confidence) so a
                 // frozen-looking estimate self-explains (#760/#792); a not-yet-calibrated day says how many
                 // more phone-counted days are needed (so a blank tile is never silently unexplained, #589).
-                caption: realSteps != nil ? "today"
+                caption: realSteps != nil ? String(localized: "today")
                     : (estSteps != nil ? stepsEstimateCaption
-                       : (needsCalibration ? stepsCalibrationCaption : "today")),
+                       : (needsCalibration ? stepsCalibrationCaption : String(localized: "today"))),
                 accent: (realSteps != nil || estSteps != nil) ? StrandPalette.metricCyan : StrandPalette.textPrimary,
                 sparkline: sparks["steps"],
                 sparkColor: StrandPalette.metricCyan,
@@ -3277,7 +3280,7 @@ struct TodayView: View {
             StatTile(
                 label: "Calories",
                 value: caloriesValue(aLatest),
-                caption: "active",
+                caption: String(localized: "active"),
                 accent: StrandPalette.metricAmber,
                 sparkline: sparks["active_kcal"],
                 sparkColor: StrandPalette.metricAmber
@@ -3292,7 +3295,7 @@ struct TodayView: View {
         if !workouts.isEmpty {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 SectionHeader("Last Workouts", overline: "Activity",
-                              trailing: "\(workouts.count) total")
+                              trailing: String(localized: "\(workouts.count) total"))
                 LazyVGrid(columns: grid, alignment: .leading, spacing: NoopMetrics.gap) {
                     ForEach(Array(workouts.prefix(6).enumerated()), id: \.offset) { _, w in
                         StatTile(
@@ -3340,14 +3343,14 @@ struct TodayView: View {
                             badge: "Whoop",
                             tint: StrandPalette.accent,
                             present: !repo.days.isEmpty,
-                            detail: "\(repo.days.count) days · \(repo.sleeps.count) sleeps"
+                            detail: String(localized: "\(repo.days.count) days · \(repo.sleeps.count) sleeps")
                         )
                         Divider().overlay(StrandPalette.hairline)
                         sourceRow(
                             badge: "Apple Health",
                             tint: StrandPalette.metricCyan,
                             present: !appleDays.isEmpty,
-                            detail: "\(appleDays.count) days · \(workouts.filter { WorkoutSource.isAppleHealth($0.source) }.count) workouts"
+                            detail: String(localized: "\(appleDays.count) days · \(workouts.filter { WorkoutSource.isAppleHealth($0.source) }.count) workouts")
                         )
                         if xiaomiDays > 0 {
                             Divider().overlay(StrandPalette.hairline)
@@ -3355,7 +3358,7 @@ struct TodayView: View {
                                 badge: "Mi Band",
                                 tint: StrandPalette.metricAmber,
                                 present: true,
-                                detail: "\(xiaomiDays) days · \(xiaomiSleeps) sleeps"
+                                detail: String(localized: "\(xiaomiDays) days · \(xiaomiSleeps) sleeps")
                             )
                         }
                         strapBatteryRow
@@ -3409,8 +3412,8 @@ struct TodayView: View {
         if hasWhoop { names.append("WHOOP") }
         if hasApple { names.append("Apple Watch") }
         if hasXiaomi { names.append("Mi Band") }
-        guard !names.isEmpty else { return "No sources yet" }
-        return "Synced from: " + names.joined(separator: ", ")
+        guard !names.isEmpty else { return String(localized: "No sources yet") }
+        return String(localized: "Synced from: \(names.joined(separator: ", "))")
     }
 
     @ViewBuilder
@@ -3418,7 +3421,7 @@ struct TodayView: View {
         HStack(spacing: 10) {
             SourceBadge("\(badge)", tint: present ? tint : StrandPalette.textTertiary)
             Spacer()
-            Text(present ? detail : "Not connected")
+            Text(present ? detail : String(localized: "Not connected"))
                 .font(StrandFont.captionNumber)
                 .foregroundStyle(present ? StrandPalette.textSecondary : StrandPalette.textTertiary)
         }
@@ -3448,7 +3451,7 @@ struct TodayView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("How \(section.rawValue.capitalized) is calculated")
+        .accessibilityLabel("How \(section.displayName) is calculated")
         .help("How this score is calculated")
     }
 
@@ -3479,9 +3482,9 @@ struct TodayView: View {
         let symbol: String
         let label: String
         switch activityClass {
-        case 1:  symbol = "figure.walk"; label = "Walking"
-        case 2:  symbol = "figure.run";  label = "Running"
-        default: symbol = "figure.stand"; label = "Still"   // 0 = still
+        case 1:  symbol = "figure.walk"; label = String(localized: "Walking")
+        case 2:  symbol = "figure.run";  label = String(localized: "Running")
+        default: symbol = "figure.stand"; label = String(localized: "Still")   // 0 = still
         }
         return Image(systemName: symbol)
             .font(.system(size: 12, weight: .regular))
@@ -3523,8 +3526,8 @@ struct TodayView: View {
             : .calibrated(coefficient: profile.stepsCalibrationCoefficient,
                           sampleDays: profile.stepsCalibrationSampleDays,
                           confidence: profile.stepsCalibrationConfidence)
-        guard profile.stepsCalibrationCoefficient > 0 else { return "est." }
-        return "est. · \(status.detail)"
+        guard profile.stepsCalibrationCoefficient > 0 else { return String(localized: "est.") }
+        return String(localized: "est. · \(status.detail)")
     }
 
     // MARK: - Loading
@@ -3955,9 +3958,9 @@ struct TodayView: View {
         guard added > 0 else { return }
         updateStore.post(UpdateItem(
             kind: .reading,
-            title: "New data added",
-            message: added == 1 ? "1 new day of history landed. Open Trends to see it."
-                                : "\(added) new days of history landed. Open Trends to see them.",
+            title: String(localized: "New data added"),
+            message: added == 1 ? String(localized: "1 new day of history landed. Open Trends to see it.")
+                                : String(localized: "\(added) new days of history landed. Open Trends to see them."),
             deepLink: NavRouter.Destination.trends.rawValue
         ))
     }
@@ -3998,9 +4001,9 @@ struct TodayView: View {
     /// `UnitFormatter` so the Imperial/Metric toggle reaches this tile. Mirrors Android's `weightTile`.
     private func weightTile(_ appleWeightKg: Double?) -> (value: String, caption: String) {
         if let kg = appleWeightKg ?? sparks["weight"]?.last {
-            return (UnitFormatter.massFromKilograms(kg, system: unitSystem), "latest")
+            return (UnitFormatter.massFromKilograms(kg, system: unitSystem), String(localized: "latest"))
         }
-        return (UnitFormatter.massFromKilograms(profile.weightKg, system: unitSystem), "from profile")
+        return (UnitFormatter.massFromKilograms(profile.weightKg, system: unitSystem), String(localized: "from profile"))
     }
 
     // MARK: - Derived text
@@ -4013,9 +4016,9 @@ struct TodayView: View {
         #endif
         let h = Calendar.current.component(.hour, from: Date())
         switch h {
-        case ..<12:   return "Good morning"
-        case 12..<17: return "Good afternoon"
-        default:      return "Good evening"
+        case ..<12:   return String(localized: "Good morning")
+        case 12..<17: return String(localized: "Good afternoon")
+        default:      return String(localized: "Good evening")
         }
     }
 
@@ -4042,8 +4045,8 @@ struct TodayView: View {
     /// Section overline naming the selected day, "Today"/"Yesterday"/"EEE d MMM".
     private var selectedDayOverline: String {
         switch selectedDayOffset {
-        case 0:  return "Today"
-        case 1:  return "Yesterday"
+        case 0:  return String(localized: "Today")
+        case 1:  return String(localized: "Yesterday")
         default:
             let f = DateFormatter()
             f.locale = Locale(identifier: "en_US_POSIX")
@@ -4054,47 +4057,56 @@ struct TodayView: View {
 
     /// A short recovery state word for the synthesis hero.
     private func synthesisWord(_ score: Double?) -> String {
-        guard let s = score else { return "No Data" }
+        guard let s = score else { return String(localized: "No Data") }
         switch s {
-        case ..<25:  return "Depleted"
-        case ..<50:  return "Low"
-        case ..<70:  return "Steady"
-        case ..<88:  return "Primed"
-        default:     return "Peak"
+        case ..<25:  return String(localized: "Depleted")
+        case ..<50:  return String(localized: "Low")
+        case ..<70:  return String(localized: "Steady")
+        case ..<88:  return String(localized: "Primed")
+        default:     return String(localized: "Peak")
         }
     }
 
-    /// Plain-English synthesis of recovery + sleep.
+    /// Plain-English synthesis of recovery + sleep. Whole-phrase variants per (charge band × sleep
+    /// state), never a stitched tail fragment, so every combination is one clean catalog key.
     private func synthesisDetail(_ d: DailyMetric?) -> String {
         guard let d, let rec = d.recovery else {
-            return "No metrics yet. Import your Whoop export or wear the strap to begin."
+            return String(localized: "No metrics yet. Import your Whoop export or wear the strap to begin.")
         }
-        let recPart: String
+        // true = slept 7h+; false = short; nil = no banked duration.
+        let sleptWell: Bool? = d.totalSleepMin.map { $0 / 60.0 >= 7 }
         switch rec {
-        case ..<50:  recPart = "Charge is low"
-        case ..<70:  recPart = "Charge is steady"
-        default:     recPart = "Charge is strong"
+        case ..<50:
+            switch sleptWell {
+            case true?:  return String(localized: "Charge is low and sleep was consistent.")
+            case false?: return String(localized: "Charge is low but sleep ran short.")
+            case nil:    return String(localized: "Charge is low.")
+            }
+        case ..<70:
+            switch sleptWell {
+            case true?:  return String(localized: "Charge is steady and sleep was consistent.")
+            case false?: return String(localized: "Charge is steady but sleep ran short.")
+            case nil:    return String(localized: "Charge is steady.")
+            }
+        default:
+            switch sleptWell {
+            case true?:  return String(localized: "Charge is strong and sleep was consistent.")
+            case false?: return String(localized: "Charge is strong but sleep ran short.")
+            case nil:    return String(localized: "Charge is strong.")
+            }
         }
-        let sleepPart: String
-        if let mins = d.totalSleepMin {
-            let h = mins / 60.0
-            sleepPart = h >= 7 ? " and sleep was consistent" : " but sleep ran short"
-        } else {
-            sleepPart = ""
-        }
-        return recPart + sleepPart + "."
     }
 
     private func ringSupporting(_ d: DailyMetric?) -> String {
-        let hrv = d?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "— ms"
+        let hrv = d?.avgHrv.map { String(localized: "\(Int($0.rounded())) ms") } ?? "— ms"
         let rhr = d?.restingHr.map { "\($0)" } ?? "—"
-        return "HRV \(hrv) · RHR \(rhr)"
+        return String(localized: "HRV \(hrv) · RHR \(rhr)")
     }
 
     private func sleepValue(_ d: DailyMetric?) -> String {
         guard let m = d?.totalSleepMin else { return "—" }
         let h = Int(m) / 60, mm = Int(m) % 60
-        return "\(h)h \(mm)m"
+        return String(localized: "\(h)h \(mm)m")
     }
 
     /// The Rest tile's caption, hours-in-bed for the day, the figure that used to be the tile's
@@ -4102,7 +4114,7 @@ struct TodayView: View {
     /// duration is banked, and to nil so the tile shows no caption line at all when neither exists.
     private func restCaption(_ d: DailyMetric?) -> String? {
         if d?.totalSleepMin != nil { return sleepValue(d) }
-        return d?.efficiency.map { String(format: "%.0f%% eff", $0) }
+        return d?.efficiency.map { String(format: String(localized: "%.0f%% eff"), $0) }
     }
 
     /// Short "it's coming, not broken" caption for an unscored Effort/Rest tile on TODAY only. The
@@ -4150,8 +4162,8 @@ struct TodayView: View {
     private func workoutDuration(_ w: WorkoutRow) -> String {
         let secs = w.durationS ?? Double(max(w.endTs - w.startTs, 0))
         let mins = Int((secs / 60).rounded())
-        if mins >= 60 { return "\(mins / 60)h \(mins % 60)m" }
-        return "\(mins)m"
+        if mins >= 60 { return String(localized: "\(mins / 60)h \(mins % 60)m") }
+        return String(localized: "\(mins)m")
     }
 
     /// "d MMM · HH:mm–HH:mm", start-only when the row has no real end (#157). The "· N bpm"
@@ -4297,7 +4309,7 @@ private struct RecordingStatusLight: View {
         }
         .buttonStyle(.plain)
         .disabled(state == nil)
-        .accessibilityLabel(state?.accessibilityText ?? "Recording status, not shown for a past day")
+        .accessibilityLabel(state?.accessibilityText ?? String(localized: "Recording status, not shown for a past day"))
     }
 }
 
@@ -4399,10 +4411,12 @@ private struct StrapBatteryRow: View {
         let hours = est.hoursRemaining
         guard hours.isFinite, hours > 0 else { return nil }
         if hours < 48 {
-            return "~\(Int(hours.rounded()))h left"
+            return String(localized: "~\(Int(hours.rounded()))h left")
         }
         let days = Int((hours / 24).rounded())
-        return "~\(days) day\(days == 1 ? "" : "s") left"
+        return days == 1
+            ? String(localized: "~1 day left")
+            : String(localized: "~\(days) days left")
     }
 
     var body: some View {
@@ -4466,9 +4480,9 @@ enum MetricTileState: Equatable {
         case .scored:                       return nil
         case .calibrating:                  return "Calibrating"
         case .carriedLastNight(let date, let stale):
-            // stringLiteral keeps this a stable, fully-formed key (the date is already substituted) rather
-            // than a "... %@" format key, so the caption is testable + renders the exact same string.
-            return LocalizedStringKey(stringLiteral: stale ? "Latest sleep · \(date)" : "Last night · \(date)")
+            // A LocalizedStringKey literal so the extractor catalogues the "Latest sleep · %@" /
+            // "Last night · %@" format keys; the rendered English string is unchanged.
+            return stale ? "Latest sleep · \(date)" : "Last night · \(date)"
         case .needsStrap:                   return "Needs the strap"
         }
     }
@@ -4479,8 +4493,11 @@ enum MetricTileState: Equatable {
         case .scored:
             return nil
         case .calibrating(let n):
-            // "night(s)" pluralises honestly so a single remaining night doesn't read "1 nights".
-            return "Building your baseline. About \(n) more \(n == 1 ? "night" : "nights") until your scores are personal."
+            // Whole-phrase singular/plural variants, never a stitched "night(s)" fragment, so each
+            // reads as one clean catalog key and still pluralises honestly.
+            return n == 1
+                ? "Building your baseline. About 1 more night until your scores are personal."
+                : "Building your baseline. About \(n) more nights until your scores are personal."
         case .carriedLastNight(_, let stale):
             // A fresh post-rollover carry tells you tonight's score is on its way; a stale carry (an older
             // import, #779) instead explains the number is from that earlier session, not today.
@@ -4498,13 +4515,16 @@ enum MetricTileState: Equatable {
         case .scored:
             return nil
         case .calibrating(let n):
-            return "Calibrating. Building your baseline. About \(n) more \(n == 1 ? "night" : "nights") until your scores are personal."
+            // Whole-string singular/plural variants, one key each, never a stitched tail fragment.
+            return n == 1
+                ? String(localized: "Calibrating. Building your baseline. About 1 more night until your scores are personal.")
+                : String(localized: "Calibrating. Building your baseline. About \(n) more nights until your scores are personal.")
         case .carriedLastNight(let date, let stale):
             return stale
-                ? "Latest sleep, \(date). This is your last scored session. Wear the strap overnight for a fresh score."
-                : "Last night, \(date). Tonight's lands after you sleep with the strap on."
+                ? String(localized: "Latest sleep, \(date). This is your last scored session. Wear the strap overnight for a fresh score.")
+                : String(localized: "Last night, \(date). Tonight's lands after you sleep with the strap on.")
         case .needsStrap:
-            return "Needs the strap. No data for today. Was your strap worn and connected overnight?"
+            return String(localized: "Needs the strap. No data for today. Was your strap worn and connected overnight?")
         }
     }
 
@@ -4575,13 +4595,13 @@ enum RecordingState: Equatable {
     var accessibilityText: String {
         switch self {
         case .recording:
-            return "Recording. Your strap is connected and saving data."
+            return String(localized: "Recording. Your strap is connected and saving data.")
         case .lastSynced(let mins):
-            return "Last synced \(mins) minutes ago. Reconnect to pull the latest."
+            return String(localized: "Last synced \(mins) minutes ago. Reconnect to pull the latest.")
         case .notRecording:
-            return "Not recording. Strap not connected. Tap to connect."
+            return String(localized: "Not recording. Strap not connected. Tap to connect.")
         case .historyExperimental:
-            return "Connected. History sync is experimental on 5.0."
+            return String(localized: "Connected. History sync is experimental on 5.0.")
         }
     }
 

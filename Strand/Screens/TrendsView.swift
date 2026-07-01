@@ -23,12 +23,12 @@ struct TrendsView: View {
         var id: Int { rawValue }
         var label: String {
             switch self {
-            case .week:    return "W"
-            case .month:   return "M"
-            case .quarter: return "3M"
-            case .half:    return "6M"
-            case .year:    return "1Y"
-            case .all:     return "ALL"
+            case .week:    return String(localized: "W")
+            case .month:   return String(localized: "M")
+            case .quarter: return String(localized: "3M")
+            case .half:    return String(localized: "6M")
+            case .year:    return String(localized: "1Y")
+            case .all:     return String(localized: "ALL")
             }
         }
         /// Trailing-day window, or nil for "all history".
@@ -143,11 +143,14 @@ struct TrendsView: View {
     /// Caption text from an already-resolved count + effective range. Mirrors
     /// `caption(_:)` exactly but takes precomputed inputs to avoid re-filtering.
     private func caption(count n: Int, eff: Range) -> String {
-        let unit = n == 1 ? "reading" : "readings"
         if eff != range {
-            return "\(n) \(unit) · sparse — widened to \(name(for: eff))"
+            return n == 1
+                ? String(localized: "1 reading · sparse, widened to \(name(for: eff))")
+                : String(localized: "\(n) readings · sparse, widened to \(name(for: eff))")
         }
-        return "\(n) \(unit) · \(name(for: range))"
+        return n == 1
+            ? String(localized: "1 reading · \(name(for: range))")
+            : String(localized: "\(n) readings · \(name(for: range))")
     }
 
     /// A padded value range for a series so the line isn't flat against the axis.
@@ -194,18 +197,18 @@ struct TrendsView: View {
 
     /// "Trailing 90 days" / "All history" — used as a card subtitle.
     private var rangeSubtitle: String {
-        guard let n = range.days else { return "All history" }
-        return "Trailing \(n) days"
+        guard let n = range.days else { return String(localized: "All history") }
+        return String(localized: "Trailing \(n) days")
     }
 
     private func name(for r: Range) -> String {
         switch r {
-        case .week:    return "week"
-        case .month:   return "month"
-        case .quarter: return "3 months"
-        case .half:    return "6 months"
-        case .year:    return "year"
-        case .all:     return "all history"
+        case .week:    return String(localized: "week")
+        case .month:   return String(localized: "month")
+        case .quarter: return String(localized: "3 months")
+        case .half:    return String(localized: "6 months")
+        case .year:    return String(localized: "year")
+        case .all:     return String(localized: "all history")
         }
     }
 
@@ -350,7 +353,7 @@ struct TrendsView: View {
 
             Spacer()
             VStack(spacing: 2) {
-                Text(weekOffset == 0 ? "This week" : weekOffsetLabel)
+                Text(weekOffset == 0 ? String(localized: "This week") : weekOffsetLabel)
                     .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.textPrimary)
                 Text("Week in review")
@@ -373,8 +376,8 @@ struct TrendsView: View {
     /// "Last week" for -1, else the count of weeks back ("3 weeks ago") for the stepper's centre label.
     private var weekOffsetLabel: String {
         let n = -weekOffset
-        if n == 1 { return "Last week" }
-        return "\(n) weeks ago"
+        if n == 1 { return String(localized: "Last week") }
+        return String(localized: "\(n) weeks ago")
     }
 
     // MARK: Week in Review — the Charge / Effort / Rest trio in pip language
@@ -456,7 +459,7 @@ struct TrendsView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                     Text("Export trends report").strandOverline()
-                    Text("A shareable one-page PDF of recovery, sleep, HRV, resting HR and strain over a range — saved on your \(Platform.deviceNoun).")
+                    Text("A shareable one-page PDF of recovery, sleep, HRV, resting HR and strain over a range, saved on your \(Platform.deviceNoun).")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -515,7 +518,7 @@ struct TrendsView: View {
                               valueRange: 0...106,
                               tip: StrandPalette.chargeBright,
                               valueFormat: { "\(Int($0.rounded()))" },
-                              accessibilityLabel: "Charge trend")
+                              accessibilityLabel: String(localized: "Charge trend"))
                 } else {
                     sparsePlaceholder
                 }
@@ -552,7 +555,7 @@ struct TrendsView: View {
                 // keeping its established metric hue for legibility. Effort is the WHOOP blue strain world.
                 metricChart(
                     title: "Heart rate variability", unit: "ms",
-                    accessibilityTitle: "Heart rate variability",
+                    accessibilityTitle: String(localized: "Heart rate variability"),
                     points: hrvPts,
                     gradient: gradient(StrandPalette.metricPurple),
                     tip: StrandPalette.metricPurple,
@@ -563,7 +566,7 @@ struct TrendsView: View {
                 )
                 metricChart(
                     title: "Resting heart rate", unit: "bpm",
-                    accessibilityTitle: "Resting heart rate",
+                    accessibilityTitle: String(localized: "Resting heart rate"),
                     points: rhrPts,
                     gradient: gradient(StrandPalette.metricRose),
                     tip: StrandPalette.metricRose,
@@ -576,7 +579,7 @@ struct TrendsView: View {
                     // Plotted points + range stay on the stored 0–100 scale (line shape unchanged); only the
                     // displayed numbers + unit follow the Effort-scale toggle, converted inside `fmt`. (#268)
                     title: "Effort", unit: "/ \(UnitFormatter.effortScaleMax(effortScale))",
-                    accessibilityTitle: "Effort",
+                    accessibilityTitle: String(localized: "Effort"),
                     points: strainPts,
                     // WHOOP: Effort/Strain is always BLUE — a deep→bright blue line, not the amber ramp.
                     gradient: gradient(StrandPalette.effortColor),
@@ -616,7 +619,7 @@ struct TrendsView: View {
                 if pts.count >= 2 {
                     glowChart(points: pts, gradient: gradient, valueRange: range,
                               tip: tip, valueFormat: { "\(fmt($0)) \(unit)" },
-                              accessibilityLabel: "\(accessibilityTitle) trend")
+                              accessibilityLabel: String(localized: "\(accessibilityTitle) trend"))
                 } else {
                     sparsePlaceholder
                 }
@@ -646,10 +649,10 @@ struct TrendsView: View {
             guard let dt = date(d.day) else { return nil }
             return RecoveryDay(date: dt, score: d.recovery)
         }
-        let title = (range == .all && repo.days.count > 365) ? "Charge — all history" : "Charge — past year"
+        let title = (range == .all && repo.days.count > 365) ? String(localized: "Charge (all history)") : String(localized: "Charge (past year)")
         return NoopCard(tint: StrandPalette.chargeColor) {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("\(title)", overline: "Calendar", trailing: "\(recoveryDays.filter { $0.score != nil }.count) days")
+                SectionHeader("\(title)", overline: "Calendar", trailing: String(localized: "\(recoveryDays.filter { $0.score != nil }.count) days"))
                 if recoveryDays.isEmpty {
                     sparsePlaceholder.frame(height: 120)
                 } else {

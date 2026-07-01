@@ -50,7 +50,7 @@ struct TestCentreView: View {
     /// The "whole app" report profile for the section-3 manual Report button. master is not a registry
     /// mode (it has no wear-and-capture flow), so the deep-link self-applies the test:all label via this.
     static let masterReportMode = TestMode(
-        domain: .master, title: "Bug report", blurb: "", icon: "ladybug", priority: .high,
+        domain: .master, title: String(localized: "Bug report"), blurb: "", icon: "ladybug", priority: .high,
         captures: [], questionnaire: [], liveReadout: [],
         capture: .toggle, includesScreenshot: false, requires5MG: false)
 
@@ -295,8 +295,8 @@ struct TestCentreView: View {
             await model.intelligence.analyzeRecent()
             await model.repo.refresh()
         }
-        infoTitle = "Charge baseline recalibrating"
-        infoMessage = "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle."
+        infoTitle = String(localized: "Charge baseline recalibrating")
+        infoMessage = String(localized: "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
         showInfo = true
     }
 
@@ -321,15 +321,15 @@ struct TestCentreView: View {
         model.ble.flushPuffinCaptures()
         let url = ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
         if let url {
-            infoTitle = "Strap log exported"
+            infoTitle = String(localized: "Strap log exported")
             #if os(iOS)
-            infoMessage = "Saved \(url.lastPathComponent) to NOOP's folder in the Files app."
+            infoMessage = String(localized: "Saved \(url.lastPathComponent) to NOOP's folder in the Files app.")
             #else
-            infoMessage = "Saved \(url.lastPathComponent) to your Documents folder."
+            infoMessage = String(localized: "Saved \(url.lastPathComponent) to your Documents folder.")
             #endif
         } else {
-            infoTitle = "Export failed"
-            infoMessage = "Couldn't write the strap log right now."
+            infoTitle = String(localized: "Export failed")
+            infoMessage = String(localized: "Couldn't write the strap log right now.")
         }
         showInfo = true
     }
@@ -454,11 +454,11 @@ private struct SleepReadoutPanel: View {
         let gravCoverage = SleepReadout.gravityCoverageFraction(gravity: live.recentGravitySamples, hr: live.recentHrSamples)
         let lastGate = SleepReadout.lastGateFired(taggedTail: live.taggedTail(domain: .sleep))
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "HR density (per min)",
-                       value: live.recentHrSamples.isEmpty ? "no live HR yet" : String(format: "%.1f", hrDensity))
-            ReadoutRow(label: "Gravity coverage",
-                       value: live.recentGravitySamples.isEmpty ? "no live gravity yet" : String(format: "%.0f%%", gravCoverage * 100))
-            ReadoutRow(label: "Last gate fired", value: lastGate ?? "no night yet")
+            ReadoutRow(label: String(localized: "HR density (per min)"),
+                       value: live.recentHrSamples.isEmpty ? String(localized: "no live HR yet") : String(format: "%.1f", hrDensity))
+            ReadoutRow(label: String(localized: "Gravity coverage"),
+                       value: live.recentGravitySamples.isEmpty ? String(localized: "no live gravity yet") : String(format: "%.0f%%", gravCoverage * 100))
+            ReadoutRow(label: String(localized: "Last gate fired"), value: lastGate ?? String(localized: "no night yet"))
         }
         .padding(.top, 2)
     }
@@ -474,9 +474,9 @@ private struct BatteryReadoutPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Current charge", value: live.batteryReadout("currentSoc"))
-            ReadoutRow(label: "Estimated runtime left", value: live.batteryReadout("estimateDaysLeft"))
-            ReadoutRow(label: "Slope source", value: live.batteryReadout("slopeSource"))
+            ReadoutRow(label: String(localized: "Current charge"), value: live.batteryReadout("currentSoc"))
+            ReadoutRow(label: String(localized: "Estimated runtime left"), value: live.batteryReadout("estimateDaysLeft"))
+            ReadoutRow(label: String(localized: "Slope source"), value: live.batteryReadout("slopeSource"))
         }
         .padding(.top, 2)
     }
@@ -498,13 +498,13 @@ private struct ConnectionReadoutPanel: View {
         // stale uptimeStart from the last connect).
         let uptime = live.connected
             ? ConnectionReadout.uptimeLabel(taggedTail: tail, nowUnix: now)
-            : "not connected"
+            : String(localized: "not connected")
         let reconnects = ConnectionReadout.reconnectCount(taggedTail: tail)
         let lastOffload = ConnectionReadout.lastOffloadResult(taggedTail: tail)
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Connection uptime", value: uptime)
-            ReadoutRow(label: "Reconnects this run", value: String(reconnects))
-            ReadoutRow(label: "Last offload result", value: lastOffload ?? "no offload yet")
+            ReadoutRow(label: String(localized: "Connection uptime"), value: uptime)
+            ReadoutRow(label: String(localized: "Reconnects this run"), value: String(reconnects))
+            ReadoutRow(label: String(localized: "Last offload result"), value: lastOffload ?? String(localized: "no offload yet"))
         }
         .padding(.top, 2)
     }
@@ -521,7 +521,7 @@ private struct RecoveryReadoutPanel: View {
     var body: some View {
         let last = TestReadout.lastChargeBreakdown(taggedTail: live.taggedTail(domain: .recovery))
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Last Charge breakdown", value: last ?? "no night scored yet")
+            ReadoutRow(label: String(localized: "Last Charge breakdown"), value: last ?? String(localized: "no night scored yet"))
         }
         .padding(.top, 2)
     }
@@ -537,7 +537,7 @@ private struct HrvReadoutPanel: View {
     var body: some View {
         let last = TestReadout.lastHrvComputation(taggedTail: live.taggedTail(domain: .hrv))
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Last HRV reading", value: last ?? "no reading yet")
+            ReadoutRow(label: String(localized: "Last HRV reading"), value: last ?? String(localized: "no reading yet"))
         }
         .padding(.top, 2)
     }
@@ -556,8 +556,8 @@ private struct StepsReadoutPanel: View {
         let steps = StepsReadout.stepsToday(taggedTail: tail)
         let calState = StepsReadout.calibrationState(taggedTail: tail)
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Steps today", value: steps.map(String.init) ?? "no estimate yet")
-            ReadoutRow(label: "Calibration", value: calState ?? "no calibration yet")
+            ReadoutRow(label: String(localized: "Steps today"), value: steps.map(String.init) ?? String(localized: "no estimate yet"))
+            ReadoutRow(label: String(localized: "Calibration"), value: calState ?? String(localized: "no calibration yet"))
         }
         .padding(.top, 2)
     }
@@ -573,7 +573,7 @@ private struct WorkoutsReadoutPanel: View {
     var body: some View {
         let summary = WorkoutsReadout.lastSessionSummary(taggedTail: live.taggedTail(domain: .workouts))
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Last session", value: summary ?? "no session yet")
+            ReadoutRow(label: String(localized: "Last session"), value: summary ?? String(localized: "no session yet"))
         }
         .padding(.top, 2)
     }
@@ -590,7 +590,7 @@ private struct ImportReadoutPanel: View {
     var body: some View {
         let summary = ImportReadout.lastImportSummary(taggedTail: live.taggedTail(domain: .dataImport))
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Last import", value: summary ?? "no import yet")
+            ReadoutRow(label: String(localized: "Last import"), value: summary ?? String(localized: "no import yet"))
         }
         .padding(.top, 2)
     }
@@ -609,8 +609,8 @@ private struct DisplayReadoutPanel: View {
         let metrics = DisplayReadout.deviceMetricsNow(taggedTail: tail)
         let frames = DisplayReadout.frameSummaryNow(taggedTail: tail)
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: "Device metrics", value: metrics ?? "reading…")
-            ReadoutRow(label: "Frame summary", value: frames ?? "no window yet")
+            ReadoutRow(label: String(localized: "Device metrics"), value: metrics ?? String(localized: "reading…"))
+            ReadoutRow(label: String(localized: "Frame summary"), value: frames ?? String(localized: "no window yet"))
         }
         .padding(.top, 2)
     }
@@ -645,7 +645,7 @@ private struct ReportReviewSheet: View {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 NoopCard {
                     ScrollView {
-                        Text(preview.isEmpty ? "(nothing to share yet)" : preview)
+                        Text(preview.isEmpty ? String(localized: "(nothing to share yet)") : preview)
                             .font(StrandFont.mono)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)

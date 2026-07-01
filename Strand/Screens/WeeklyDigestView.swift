@@ -311,7 +311,7 @@ struct WeeklyDigestContent: View {
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Informational only — not medical advice.")
+            Text("Informational only, not medical advice.")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
         }
@@ -326,8 +326,10 @@ struct WeeklyDigestContent: View {
     /// "Jun 8" from "2026-06-08", via the engine's own pure parse (no Calendar).
     private func shortDate(_ ymd: String) -> String {
         guard let (_, m, d) = WeeklyDigestEngine.parseYMD(ymd) else { return ymd }
-        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        let months = [String(localized: "Jan"), String(localized: "Feb"), String(localized: "Mar"),
+                      String(localized: "Apr"), String(localized: "May"), String(localized: "Jun"),
+                      String(localized: "Jul"), String(localized: "Aug"), String(localized: "Sep"),
+                      String(localized: "Oct"), String(localized: "Nov"), String(localized: "Dec")]
         let name = (1...12).contains(m) ? months[m - 1] : "\(m)"
         return "\(name) \(d)"
     }
@@ -339,7 +341,7 @@ struct WeeklyDigestContent: View {
     }
 
     private func deltaText(_ s: WeeklyMetricSummary) -> String {
-        guard s.weekOverWeek.current.n > 0, s.weekOverWeek.previous.n > 0 else { return "new" }
+        guard s.weekOverWeek.current.n > 0, s.weekOverWeek.previous.n > 0 else { return String(localized: "new") }
         // Always speak in percent so the chip's ↑/↓ + sign reads as a delta. A sub-1% mover
         // used to fall back to a bare "0.1" which, once the card prepended "−", looked like a
         // truncated number rather than a change.
@@ -362,11 +364,24 @@ struct WeeklyDigestContent: View {
     private func rowAccessibility(_ s: WeeklyMetricSummary) -> String {
         let mean = meanText(s)
         guard s.weekOverWeek.current.n > 0, s.weekOverWeek.previous.n > 0 else {
-            return "\(s.metric.label): \(mean) this week, no comparison."
+            return String(localized: "\(s.metric.label): \(mean) this week, no comparison.")
         }
-        let dir = s.wowDelta > 0 ? "up" : (s.wowDelta < 0 ? "down" : "unchanged")
-        let frame = s.wowGoodness == 1 ? ", a good sign" : (s.wowGoodness == -1 ? ", worth a look" : "")
-        return "\(s.metric.label): \(mean) this week, \(dir) \(deltaText(s)) week over week\(frame)."
+        // Whole-phrase variants per direction, then a whole-key wrapper per goodness frame, so
+        // VoiceOver never hears a stitched half-English fragment.
+        let delta = deltaText(s)
+        let base: String
+        if s.wowDelta > 0 {
+            base = String(localized: "\(s.metric.label): \(mean) this week, up \(delta) week over week")
+        } else if s.wowDelta < 0 {
+            base = String(localized: "\(s.metric.label): \(mean) this week, down \(delta) week over week")
+        } else {
+            base = String(localized: "\(s.metric.label): \(mean) this week, unchanged \(delta) week over week")
+        }
+        switch s.wowGoodness {
+        case 1:  return String(localized: "\(base), a good sign.")
+        case -1: return String(localized: "\(base), worth a look.")
+        default: return String(localized: "\(base).")
+        }
     }
 
     private func fmt1(_ x: Double) -> String { String(format: "%.1f", x) }
@@ -405,7 +420,7 @@ private struct DigestScoreCard: View {
     }
     /// "of 100" for the genuine 0–100 scores; the Effort card follows the scale toggle ("of 100"/"of 21").
     private var captionText: String {
-        isEffort ? "of \(UnitFormatter.effortScaleMax(effortScale))" : "of 100"
+        isEffort ? String(localized: "of \(UnitFormatter.effortScaleMax(effortScale))") : String(localized: "of 100")
     }
 
     var body: some View {

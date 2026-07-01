@@ -148,7 +148,7 @@ struct StressView: View {
 
             // 2. Today's numbers — uniform tiles in one grid.
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                SectionHeader("Today", overline: "Markers", trailing: "vs 30-day baseline")
+                SectionHeader("Today", overline: "Markers", trailing: String(localized: "vs 30-day baseline"))
                 tileGrid(model)
             }
             .staggeredAppear(index: 1)
@@ -244,8 +244,8 @@ struct StressView: View {
     /// "avg 1.4 · 9h" summary for the timeline header, from the scored hours.
     private func timelineTrailing(_ day: DaytimeStress.Result) -> String {
         let n = day.scored.count
-        guard let mean = day.dayMean else { return "\(n)h" }
-        return "avg " + String(format: "%.1f", mean) + " · \(n)h"
+        guard let mean = day.dayMean else { return String(localized: "\(n)h") }
+        return String(localized: "avg \(String(format: "%.1f", mean)) · \(n)h")
     }
 
     /// A passive, in-app nudge to run a Breathe session after a sustained high-stress run.
@@ -376,7 +376,7 @@ struct StressView: View {
                         StatTile(
                             label: "Baevsky Stress Index",
                             value: "\(Int(si.si.rounded()))",
-                            caption: "Autonomic rigidity from your heart-rate rhythm. Higher means a more rigid, stressed rhythm.",
+                            caption: String(localized: "Autonomic rigidity from your heart-rate rhythm. Higher means a more rigid, stressed rhythm."),
                             accent: StressRamp.tense
                         )
                     }
@@ -388,14 +388,14 @@ struct StressView: View {
                             StatTile(
                                 label: "Autonomic balance (LF/HF)",
                                 value: String(format: "%.1f", ratio),
-                                caption: "Sympathetic vs parasympathetic tone from frequency-domain HRV. Higher leans sympathetic (stress-ward).",
+                                caption: String(localized: "Sympathetic vs parasympathetic tone from frequency-domain HRV. Higher leans sympathetic (stress-ward)."),
                                 accent: StressRamp.steady
                             )
                         } else if f.hf > 0 {
                             StatTile(
                                 label: "HF power",
                                 value: "\(Int(f.hf.rounded()))",
-                                caption: "Parasympathetic (rest) band of your HRV.",
+                                caption: String(localized: "Parasympathetic (rest) band of your HRV."),
                                 accent: StressRamp.steady
                             )
                         }
@@ -422,7 +422,7 @@ struct StressView: View {
             StatTile(
                 label: "Stress",
                 value: String(format: "%.1f", model.score),
-                caption: "of 3 · \(model.band.title)",
+                caption: String(localized: "of 3 · \(model.band.title)"),
                 accent: StressRamp.color(model.score),
                 sparkline: model.sparkValues.count > 1 ? model.sparkValues : nil,
                 sparkColor: StressRamp.color(model.score)
@@ -430,7 +430,7 @@ struct StressView: View {
             // Resting HR — an INCREASE is the stressful direction.
             markerTile(
                 label: "Resting HR",
-                value: model.rhrToday.map { "\($0) bpm" } ?? "—",
+                value: model.rhrToday.map { String(localized: "\($0) bpm") } ?? "—",
                 delta: model.rhrDelta,
                 accent: StrandPalette.metricRose,
                 higherIsStress: true
@@ -438,7 +438,7 @@ struct StressView: View {
             // HRV — a DECREASE is the stressful direction.
             markerTile(
                 label: "HRV",
-                value: model.hrvToday.map { "\(Int($0.rounded())) ms" } ?? "—",
+                value: model.hrvToday.map { String(localized: "\(Int($0.rounded())) ms") } ?? "—",
                 delta: model.hrvDelta,
                 accent: StrandPalette.metricPurple,
                 higherIsStress: false
@@ -461,10 +461,10 @@ struct StressView: View {
         if let delta, abs(delta) >= 0.5 {
             let up = delta > 0
             let isStressful = (up == higherIsStress)
-            deltaText = "\(up ? "+" : "−")\(Int(abs(delta).rounded())) vs base"
+            deltaText = String(localized: "\(up ? "+" : "−")\(Int(abs(delta).rounded())) vs base")
             deltaColor = isStressful ? StrandPalette.statusWarning : StrandPalette.statusPositive
         } else {
-            deltaText = "at baseline"
+            deltaText = String(localized: "at baseline")
             deltaColor = StrandPalette.textTertiary
         }
         return StatTile(
@@ -488,8 +488,8 @@ struct StressView: View {
                 let avg = points.map(\.value).reduce(0, +) / Double(points.count)
                 ChartCard(
                     title: "Stress · \(range.label)",
-                    subtitle: "Daily 0–3 proxy",
-                    trailing: "avg " + String(format: "%.1f", avg),
+                    subtitle: String(localized: "Daily 0–3 proxy"),
+                    trailing: String(localized: "avg \(String(format: "%.1f", avg))"),
                     tint: StressRamp.calm
                 ) {
                     TrendChart(
@@ -499,7 +499,7 @@ struct StressView: View {
                         showsArea: true,
                         height: NoopMetrics.chartHeight,
                         valueFormat: { String(format: "%.1f", $0) },
-                        accessibilityLabel: "Stress trend"
+                        accessibilityLabel: String(localized: "Stress trend")
                     )
                 } footer: {
                     ChartFooter([
@@ -546,15 +546,15 @@ struct StressView: View {
                      : "Stress is derived from two autonomic signals.")
                     .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text("We compare today's resting heart rate and HRV to your own 30-day baseline. A higher-than-usual resting HR and a lower-than-usual HRV both push the score up — classic signs the body is activated. The combined shift is mapped onto a 0–3 scale: 0 is calm, 1.5 sits at your baseline, 3 is highly activated.")
+                Text("We compare today's resting heart rate and HRV to your own 30-day baseline. A higher-than-usual resting HR and a lower-than-usual HRV both push the score up, classic signs the body is activated. The combined shift is mapped onto a 0–3 scale: 0 is calm, 1.5 sits at your baseline, 3 is highly activated.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Divider().overlay(StrandPalette.hairline)
                 HStack(spacing: 0) {
-                    bandLegend("0–1", "LOW", StressRamp.calm)
-                    bandLegend("1–2", "MEDIUM", StressRamp.steady)
-                    bandLegend("2–3", "HIGH", StressRamp.tense)
+                    bandLegend("0–1", String(localized: "LOW"), StressRamp.calm)
+                    bandLegend("1–2", String(localized: "MEDIUM"), StressRamp.steady)
+                    bandLegend("2–3", String(localized: "HIGH"), StressRamp.tense)
                 }
             }
         }
@@ -593,9 +593,9 @@ enum StressBand {
 
     var title: String {
         switch self {
-        case .low:    return "LOW"
-        case .medium: return "MEDIUM"
-        case .high:   return "HIGH"
+        case .low:    return String(localized: "LOW")
+        case .medium: return String(localized: "MEDIUM")
+        case .high:   return String(localized: "HIGH")
         }
     }
 
@@ -765,12 +765,12 @@ struct StressModel {
         let recent = Array(pts.suffix(30))
         if recent.isEmpty {
             self.calmTimeValue = "—"
-            self.calmTimeCaption = "needs history"
+            self.calmTimeCaption = String(localized: "needs history")
         } else {
             let calm = recent.filter { $0.value < 1.0 }.count
             let pct = Int((Double(calm) / Double(recent.count) * 100).rounded())
             self.calmTimeValue = "\(pct)%"
-            self.calmTimeCaption = "low-stress days · \(recent.count)d"
+            self.calmTimeCaption = String(localized: "low-stress days · \(recent.count)d")
         }
     }
 }
@@ -820,25 +820,27 @@ enum StressMath {
         switch band {
         case .high:
             if rhrUp && hrvDn {
-                return "Resting HR is elevated and HRV is below your baseline — both classic signs of high activation. Prioritise rest, hydration and an easy day."
+                return String(localized: "Resting HR is elevated and HRV is below your baseline, both classic signs of high activation. Prioritise rest, hydration and an easy day.")
             } else if hrvDn {
-                return "HRV has dropped well below your baseline, pointing to elevated stress or fatigue. Ease off and give your body time to recover."
+                return String(localized: "HRV has dropped well below your baseline, pointing to elevated stress or fatigue. Ease off and give your body time to recover.")
             } else if rhrUp {
-                return "Resting heart rate is running high versus your norm — your body is under load today. Keep effort light."
+                return String(localized: "Resting heart rate is running high versus your norm. Your body is under load today. Keep effort light.")
             }
-            return "Your autonomic markers are skewed toward stress today. Treat it as a recovery-focused day."
+            return String(localized: "Your autonomic markers are skewed toward stress today. Treat it as a recovery-focused day.")
         case .medium:
             if rhrUp || hrvDn {
-                return "Slightly off baseline — \(rhrUp ? "resting HR is a touch high" : "HRV is a little low") — so you're moderately activated. Nothing alarming; just don't overreach."
+                return rhrUp
+                    ? String(localized: "Slightly off baseline (resting HR is a touch high), so you're moderately activated. Nothing alarming; just don't overreach.")
+                    : String(localized: "Slightly off baseline (HRV is a little low), so you're moderately activated. Nothing alarming; just don't overreach.")
             }
-            return "You're sitting around your typical autonomic baseline — moderate stress, a normal, balanced day."
+            return String(localized: "You're sitting around your typical autonomic baseline: moderate stress, a normal, balanced day.")
         case .low:
             if rhrDn && hrvUp {
-                return "Resting heart rate is low and HRV is up — your nervous system looks well-recovered and calm. A great day to push if you want to."
+                return String(localized: "Resting heart rate is low and HRV is up. Your nervous system looks well-recovered and calm. A great day to push if you want to.")
             } else if hrvUp {
-                return "HRV is above baseline, a sign of a relaxed, well-recovered nervous system. Stress is low."
+                return String(localized: "HRV is above baseline, a sign of a relaxed, well-recovered nervous system. Stress is low.")
             }
-            return "Resting heart rate and HRV are sitting at or below baseline — low physiological stress. You're in a calm, recovered state."
+            return String(localized: "Resting heart rate and HRV are sitting at or below baseline: low physiological stress. You're in a calm, recovered state.")
         }
     }
 }
@@ -943,9 +945,9 @@ struct DaytimeLoadLine: View {
 
     private var accessibilitySummary: String {
         let scored = hours.compactMap { p in p.level.map { (p.hour, $0) } }
-        guard !scored.isEmpty else { return "No intraday stress data yet today." }
+        guard !scored.isEmpty else { return String(localized: "No intraday stress data yet today.") }
         let parts = scored.map { "\($0.0):00 \(String(format: "%.1f", $0.1))" }
-        return "Autonomic load today: " + parts.joined(separator: ", ")
+        return String(localized: "Autonomic load today: \(parts.joined(separator: ", "))")
     }
 }
 
@@ -1013,9 +1015,9 @@ struct StressTotalsBar: View {
 
     private var bands: [Band] {
         [
-            Band(band: .low,    label: "Calm",     color: StressRamp.calm),
-            Band(band: .medium, label: "Moderate", color: StressRamp.steady),
-            Band(band: .high,   label: "High",     color: StressRamp.tense),
+            Band(band: .low,    label: String(localized: "Calm"),     color: StressRamp.calm),
+            Band(band: .medium, label: String(localized: "Moderate"), color: StressRamp.steady),
+            Band(band: .high,   label: String(localized: "High"),     color: StressRamp.tense),
         ]
     }
 
@@ -1066,16 +1068,13 @@ struct StressTotalsBar: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Today's stress split: "
-            + "calm \(durationLabel(totals.calmHours)), "
-            + "moderate \(durationLabel(totals.moderateHours)), "
-            + "high \(durationLabel(totals.highHours))."
+            String(localized: "Today's stress split: calm \(durationLabel(totals.calmHours)), moderate \(durationLabel(totals.moderateHours)), high \(durationLabel(totals.highHours)).")
         )
     }
 
     /// "—" when a band had no scored hours, else "Nh" (each scored bucket is one hour).
     private func durationLabel(_ hours: Int) -> String {
-        hours <= 0 ? "—" : "\(hours)h"
+        hours <= 0 ? "—" : String(localized: "\(hours)h")
     }
 }
 
