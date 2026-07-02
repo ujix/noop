@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "7.8.0"
+    const val CURRENT_VERSION = "7.9.0"
 
     data class Release(
         val version: String,
@@ -36,6 +36,22 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "7.9.0",
+            title = "Coupled view, workouts rebuilt, journal numbers",
+            date = "July 2026",
+            items = listOf(
+                "**Coupled view.** An optional one-glance day screen: recovery, day strain on the 0 to 21 scale, and sleep together. Turn it on as a card in Customise. It is a different lens on NOOP's own scores, nothing is recomputed.",
+                "**Workout list, rebuilt on iPhone.** All Sessions is a proper compact list now, with sport, source and search filters and a merge tool to split or join your own sessions. Merges keep the real active time and re-derive effort. Imported history stays read only. Android gets the same filters and merge.",
+                "**Numbers in your journal.** Journal items can hold a number with a unit (caffeine in mg, alcohol in units) instead of only yes or no, and those numbers feed the what-moves-your-recovery ranking. Items group into tidy sections, and renaming a custom item keeps its history.",
+                "**Band sleep state (beta).** For WHOOP 5.0 and MG, the band's own sleep-state signal now reaches a track in the Deep Timeline and a column in the raw sensor export, and it can gently confirm the on-device sleep detection. It is beta because the codes are still being confirmed against real nights, so it never overrides your derived sleep.",
+                "**Delete a sleep and it stays gone.** Deleting a detected sleep now keeps it from coming back on the next sync, with an undo if you change your mind. A hand-edited nap you delete just goes away quietly.",
+                "**The live heart-rate graph reads true.** A steady heart rate no longer draws a slow phantom ramp on the Health screen. Thanks ryanbr.",
+                "**Chart range chips make sense on new accounts.** W, M, 3M, 6M, 1Y and ALL unlock as your history grows instead of drawing identical charts in your first week, and they behave the same on iPhone, Mac and Android. Thanks ryanbr.",
+                "**Editing a sleep can no longer blank the screen.** A late-night edit that rolled the bed time across midnight could hide the whole sleep screen. The editor corrects the obvious case and degrades gracefully instead. Your data was never lost. Thanks sudden-break.",
+                "**And more.** Week in Review is honest about short weeks and respects your Effort scale everywhere (thanks pikapik487), Android can add a device without dropping a live strap, Lab Book imports markers from a CSV including European decimals, and the Apple Watch and design system are localised in step with the phone.",
+            ),
+        ),
         Release(
             version = "7.8.0",
             title = "The everything update",
