@@ -98,7 +98,7 @@ struct LabBookView: View {
             case .success(let urls):
                 if let url = urls.first { importMarkersCsv(url: url) }
             case .failure(let error):
-                NSLog("Import: markers CSV picker failed — \(error.localizedDescription)")
+                NSLog("Import: markers CSV picker failed - \(error.localizedDescription)")
             }
         }
     }

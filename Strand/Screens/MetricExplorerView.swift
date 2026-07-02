@@ -135,6 +135,19 @@ enum ExploreRange: Int, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// Pure #943 chip-coercion rule, extracted so it can be pinned by a test (the Swift twin of Android's
+/// `coercedVitalRange` in HealthScreen.kt). Resolves a stored selection NON-DESTRUCTIVELY: an unlocked
+/// selection is kept verbatim; a LOCKED one renders as the largest unlocked range with a real finite
+/// window (`days != nil`, so never ALL) whose rawValue is <= the selection, else `.week`. Coercing a
+/// locked default to ALL would jump a calibrating user to the everything view, so it is excluded.
+enum ExploreRangeGating {
+    static func coerced(selection: ExploreRange, isUnlocked: (ExploreRange) -> Bool) -> ExploreRange {
+        if isUnlocked(selection) { return selection }
+        return [ExploreRange.year, .half, .quarter, .month, .week]
+            .first { $0.days != nil && $0.rawValue <= selection.rawValue && isUnlocked($0) } ?? .week
+    }
+}
+
 // MARK: - Root: categorized list
 
 /// The "Explore" picker — categories as sections, metrics as rows, each pushing a
@@ -442,9 +455,7 @@ struct MetricDetailView: View {
     /// user to the everything view. When the stored range is itself unlocked it is used verbatim, so
     /// once history grows the selection un-coerces on its own with no snap-back.
     private var coercedSelection: ExploreRange {
-        if isUnlocked(range) { return range }
-        return [ExploreRange.year, .half, .quarter, .month, .week]
-            .first { $0.days != nil && $0.rawValue <= range.rawValue && isUnlocked($0) } ?? .week
+        ExploreRangeGating.coerced(selection: range, isUnlocked: isUnlocked)
     }
 
     /// The pill's selection binding: it HIGHLIGHTS the coerced selection (so a locked default shows the
