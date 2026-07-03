@@ -106,7 +106,8 @@ struct MindSection: View {
                     selected ? StrandPalette.restBright : StrandPalette.hairline,
                     lineWidth: selected ? 1.5 : 1))
         }
-        .buttonStyle(.plain)
+        // Liquid tap response: the same physical settle-inward every tappable liquid control gets.
+        .buttonStyle(LiquidPressStyle())
         .accessibilityLabel("\(MoodStore.label(for: value)), mood \(value) of 5")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -157,10 +158,11 @@ struct MindSection: View {
             ForEach(lines) { line in
                 NoopCard(tint: StrandPalette.restColor) {
                     HStack(alignment: .top, spacing: 12) {
-                        // A soft Rest dot marks the row without colour-coding sentiment.
-                        Circle().fill(StrandPalette.restBright)
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 6)
+                        // A small liquid vessel filled to the link's strength (|r|) marks the row and reads
+                        // its magnitude at a glance — the leading-gauge idiom Insights' effect cards use.
+                        // Rest-tinted so it carries no valence (a link is just a link, never good or bad).
+                        LiquidVessel(value: line.strength, tint: StrandPalette.restBright, animated: false)
+                            .frame(width: 22, height: 22)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(line.text)
@@ -185,6 +187,8 @@ struct MindSection: View {
         let id: String
         let text: String
         let caption: String
+        /// Correlation magnitude 0...1 (|r|), for the leading strength vessel.
+        let strength: Double
     }
 
     // MARK: - Load
@@ -246,6 +250,7 @@ struct MindSection: View {
             ? String(localized: "Days with higher \(metric) tend to be your better-mood days.")
             : String(localized: "Days with higher \(metric) tend to be your lower-mood days.")
         let caption = String(localized: "\(strength) link · r = \(String(format: "%+.2f", corr.r)) · n = \(corr.n) days")
-        return MoodLine(id: id, text: text, caption: caption)
+        // |r| capped at 1 for the leading strength vessel's fill.
+        return MoodLine(id: id, text: text, caption: caption, strength: min(1, abs(corr.r)))
     }
 }
