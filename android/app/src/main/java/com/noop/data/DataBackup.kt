@@ -18,8 +18,10 @@ import java.util.zip.ZipOutputStream
  * no account, nothing leaves the device except through these two explicit, user-driven
  * file operations (a SAF document the user picks).
  *
- * Export: checkpoint the WAL into the main db file, then write a single-entry ZIP
- * (the `.noopbak` format) containing the SQLite file. ZIP deflate typically reduces a
+ * Export: checkpoint the WAL into the main db file, then write a ZIP (the `.noopbak`
+ * format) containing the SQLite file plus a small `settings.json` entry (#1000) with the
+ * whitelisted profile/display settings (see [BackupSettingsCodec]), so a restore also
+ * brings back weight/height/units and not just the rows. ZIP deflate typically reduces a
  * 100 MB+ SQLite backup to 10–20 MB — SQLite's page-aligned text data compresses very
  * well. The ZIP is a standard container: users can rename `.noopbak` → `.zip` and
  * extract the SQLite manually with any archive tool on any OS.
@@ -33,8 +35,11 @@ import java.util.zip.ZipOutputStream
  */
 object DataBackup {
 
-    /** Entry name inside the `.noopbak` ZIP. */
+    /** Entry name of the SQLite inside the `.noopbak` ZIP. */
     private const val ZIP_ENTRY_NAME = "noop-backup.sqlite"
+
+    /** Entry name of the optional whitelisted-settings JSON (#1000). Matches the Apple exporter. */
+    private const val SETTINGS_ENTRY_NAME = BackupSettingsCodec.ENTRY_NAME
 
     /** First 16 bytes of every SQLite 3 file: "SQLite format 3\0". */
     private val SQLITE_MAGIC: ByteArray =
@@ -78,6 +83,12 @@ object DataBackup {
             throw IOException("No database to export yet.")
         }
 
+        // #1000: the whitelisted profile/display settings ride along as a second entry so a restore
+        // brings back weight/height/units, not just the rows. Null (nothing user-set) degrades to the
+        // legacy single-entry ZIP. The DB entry stays FIRST — older importers stop at the first
+        // `.sqlite` entry, so entry order is part of the cross-platform container contract.
+        val settingsJson = BackupSettingsBridge.snapshotJson(appContext)
+
         val resolver = appContext.contentResolver
         val output = resolver.openOutputStream(uri)
             ?: throw IOException("Could not open the chosen file for writing.")
@@ -86,6 +97,11 @@ object DataBackup {
                 zip.putNextEntry(ZipEntry(ZIP_ENTRY_NAME))
                 dbFile.inputStream().use { input -> input.copyTo(zip) }
                 zip.closeEntry()
+                if (settingsJson != null) {
+                    zip.putNextEntry(ZipEntry(SETTINGS_ENTRY_NAME))
+                    zip.write(settingsJson.toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
             }
         }
     }
@@ -117,14 +133,19 @@ object DataBackup {
         //    If it's a plain SQLite (legacy), copy it to the same temp file.
         //    The container-staging step is factored into [stageBackupSqlite] (a pure file/stream
         //    function) so it can be exercised under real file I/O in unit tests without Room/Context.
+        //    A `settings.json` entry (#1000) is staged alongside when present; the stale-delete first
+        //    matters, or a leftover from an earlier import could masquerade as THIS backup's settings.
         val tempSqlite = File(appContext.cacheDir, "import-extract.sqlite")
+        val tempSettings = File(appContext.cacheDir, "import-settings.json")
+        tempSettings.delete()
         try {
-            when (val staged = stageBackupSqlite(resolver.openInputStream(uri), header, tempSqlite)) {
+            when (val staged = stageBackupSqlite(resolver.openInputStream(uri), header, tempSqlite, tempSettings)) {
                 StageResult.OK -> Unit
                 StageResult.CANNOT_OPEN -> return ImportResult.Failed("Could not open the chosen file.")
-                StageResult.NO_DB_IN_ZIP -> return ImportResult.Failed(
-                    "The backup archive doesn't contain a database file."
-                )
+                StageResult.NO_DB_IN_ZIP -> {
+                    tempSettings.delete()
+                    return ImportResult.Failed("The backup archive doesn't contain a database file.")
+                }
                 StageResult.NOT_A_BACKUP -> return ImportResult.Failed(
                     "That file is not a NOOP backup - it doesn't look like a .noopbak archive or a SQLite database."
                 )
@@ -132,12 +153,14 @@ object DataBackup {
             }
         } catch (e: IOException) {
             tempSqlite.delete()
+            tempSettings.delete()
             return ImportResult.Failed("Could not read the chosen file: ${e.message}")
         }
 
         // 3. Validate the extracted file is a real SQLite database (magic-byte check).
         if (!isValidSqliteHeader(tempSqlite)) {
             tempSqlite.delete()
+            tempSettings.delete()
             return ImportResult.Failed("The backup archive doesn't contain a valid NOOP database.")
         }
 
@@ -152,6 +175,7 @@ object DataBackup {
             BackupOrigin.MAC ->
                 return rejectForeign(
                     tempSqlite,
+                    tempSettings,
                     "This isn't a NOOP backup from this app. It looks like a backup from the Mac or " +
                         "iOS NOOP app (it carries that platform's migration bookkeeping). Restoring it here " +
                         "would strand your store. To move your history across platforms, export the " +
@@ -161,6 +185,7 @@ object DataBackup {
                 if (holdsData(backupTables)) {
                     return rejectForeign(
                         tempSqlite,
+                        tempSettings,
                         "This isn't a NOOP backup from this app. It's missing the database bookkeeping a " +
                             "NOOP backup carries (it looks like another app's database). Restoring it would " +
                             "strand your store.",
@@ -183,6 +208,7 @@ object DataBackup {
             if (dbFile.exists()) dbFile.copyTo(rollbackFile, overwrite = true)
         } catch (e: IOException) {
             tempSqlite.delete()
+            tempSettings.delete()
             return ImportResult.Failed("Could not back up the current data: ${e.message}")
         }
 
@@ -196,7 +222,20 @@ object DataBackup {
             runCatching { if (rollbackFile.exists()) rollbackFile.copyTo(dbFile, overwrite = true) }
             rollbackFile.delete()
             tempSqlite.delete()
+            tempSettings.delete()
             return ImportResult.Failed("Import failed, your data is unchanged: ${e.message}")
+        }
+
+        // 7. #1000: re-apply the backup's whitelisted profile/display settings (weight, height, age,
+        //    sex, HR-max override, unit prefs) — but only NOW, after the DB swap landed. Every failure
+        //    path above returns without touching settings. Legacy single-entry backups staged no
+        //    settings file and restore exactly as before; a malformed settings entry degrades to
+        //    "fewer keys applied" inside the codec and can never fail the restore.
+        if (tempSettings.exists()) {
+            runCatching {
+                BackupSettingsBridge.apply(appContext, tempSettings.readText(Charsets.UTF_8))
+            }
+            tempSettings.delete()
         }
 
         rollbackFile.delete()
@@ -216,27 +255,46 @@ object DataBackup {
      * tests drive it with real `java.util.zip` archives and real files, exercising the exact extraction
      * the live import uses (no behaviour fork between test and production).
      *
+     * When [settingsDest] is given, a `settings.json` entry (#1000) is ALSO staged there if the ZIP
+     * carries one (either platform's exporter may have written it, in either entry order). Its absence
+     * is not an error — every pre-#1000 backup is a single-entry ZIP — and it never affects the
+     * returned [StageResult]: the DB is the payload that decides success.
+     *
      * NOTE this does NOT validate the staged file's SQLite header or origin; [importFrom] does that
      * next, on the staged file. Keeping staging and validation separate keeps each pure-testable.
      */
-    fun stageBackupSqlite(input: java.io.InputStream?, header: ByteArray, dest: File): StageResult {
+    fun stageBackupSqlite(
+        input: java.io.InputStream?,
+        header: ByteArray,
+        dest: File,
+        settingsDest: File? = null,
+    ): StageResult {
         if (input == null) return StageResult.CANNOT_OPEN
         input.use { stream ->
             when {
                 header.startsWith(ZIP_MAGIC) -> {
-                    var found = false
+                    var foundDb = false
+                    var foundSettings = false
                     ZipInputStream(stream).use { zip ->
                         var entry = zip.nextEntry
                         while (entry != null) {
-                            if (!entry.isDirectory && entry.name.endsWith(".sqlite")) {
-                                FileOutputStream(dest).use { out -> zip.copyTo(out) }
-                                found = true
-                                break
+                            when {
+                                !entry.isDirectory && !foundDb && entry.name.endsWith(".sqlite") -> {
+                                    FileOutputStream(dest).use { out -> zip.copyTo(out) }
+                                    foundDb = true
+                                }
+                                !entry.isDirectory && !foundSettings && settingsDest != null &&
+                                    entry.name.substringAfterLast('/') == SETTINGS_ENTRY_NAME -> {
+                                    FileOutputStream(settingsDest).use { out -> zip.copyTo(out) }
+                                    foundSettings = true
+                                }
                             }
+                            // Everything we could want is staged - stop reading the archive.
+                            if (foundDb && (settingsDest == null || foundSettings)) break
                             entry = zip.nextEntry
                         }
                     }
-                    return if (found) StageResult.OK else StageResult.NO_DB_IN_ZIP
+                    return if (foundDb) StageResult.OK else StageResult.NO_DB_IN_ZIP
                 }
                 header.startsWith(SQLITE_MAGIC) -> {
                     FileOutputStream(dest).use { out -> stream.copyTo(out) }
@@ -247,15 +305,22 @@ object DataBackup {
         }
     }
 
-    /** Write [dbFile]'s bytes into a single-entry deflate ZIP at [dest] (the `.noopbak` container).
-     *  Context-free twin of the stream the live [exportTo] writes, so tests round-trip a real archive. */
+    /** Write [dbFile]'s bytes into a deflate ZIP at [dest] (the `.noopbak` container), DB entry first,
+     *  plus the optional `settings.json` entry (#1000) when [settingsJson] is non-null. Context-free
+     *  twin of the stream the live [exportTo] writes, so tests round-trip a real archive of either
+     *  shape (legacy single-entry when [settingsJson] is null). */
     @Throws(IOException::class)
-    fun writeBackupZip(dbFile: File, dest: File) {
+    fun writeBackupZip(dbFile: File, dest: File, settingsJson: String? = null) {
         FileOutputStream(dest).use { out ->
             ZipOutputStream(out).use { zip ->
                 zip.putNextEntry(ZipEntry(ZIP_ENTRY_NAME))
                 dbFile.inputStream().use { input -> input.copyTo(zip) }
                 zip.closeEntry()
+                if (settingsJson != null) {
+                    zip.putNextEntry(ZipEntry(SETTINGS_ENTRY_NAME))
+                    zip.write(settingsJson.toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
             }
         }
     }
@@ -349,9 +414,10 @@ object DataBackup {
         }
     }
 
-    /** Delete the staged temp file and return a Failed result, keeping the live DB untouched. */
-    private fun rejectForeign(tempSqlite: File, message: String): ImportResult {
+    /** Delete the staged temp files and return a Failed result, keeping the live DB untouched. */
+    private fun rejectForeign(tempSqlite: File, tempSettings: File, message: String): ImportResult {
         tempSqlite.delete()
+        tempSettings.delete()
         return ImportResult.Failed(message)
     }
 }

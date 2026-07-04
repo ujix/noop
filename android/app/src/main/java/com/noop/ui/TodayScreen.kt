@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Info
@@ -513,6 +514,16 @@ fun TodayScreen(
     // existing RecoveryDriversSection (gated to the calibration countdown when the night can't score) plus
     // the folded Readiness card (S4). Not persisted, so it reopens closed. Mirrors iOS showChargeBreakdown.
     var showChargeBreakdown by remember { mutableStateOf(false) }
+    // LIVE SESSIONS (beta, default ON): the "Start session" entry under the hero + its full-screen Dialog
+    // (the same presentation the live-workout overlay / Charge breakdown use — deliberately NOT a nav
+    // destination, so dismissing it leaves the session's runner coaching and this entry is the way back
+    // in). Gated on the Settings `live_sessions_beta` flag; SharedPreferences isn't reactive, so it's read
+    // once into local state like the hydration/day-cycle gates above. The ACTIVE runner is also collected
+    // here (null ↔ runner only — the per-second snapshot is scoped inside the entry card) so a running
+    // session keeps its way-back-in card even if the beta flag was just switched off.
+    var showLiveSession by remember { mutableStateOf(false) }
+    val liveSessionsEnabled = remember { LiveSessionPrefs.enabled(context) }
+    val activeLiveSession by LiveSessionRunner.active.collectAsStateWithLifecycle()
     // S4: the Synthesis card collapses to a one-liner that expands on tap (default collapsed). Mirrors iOS.
     var synthesisExpanded by remember { mutableStateOf(false) }
     // S5: the Key Metrics grid caps at the first METRICS_COLLAPSED_CAP tiles behind a "Show all metrics"
@@ -1137,13 +1148,39 @@ fun TodayScreen(
         }
         }
 
+        // LIVE SESSIONS (beta): the compact "Start session · BETA" entry, directly under the hero. Today
+        // only (offset 0 — a session is a now-thing), gated on the Settings beta flag; a RUNNING session
+        // keeps the card visible regardless (it is the designed way back into the dismissed session dialog,
+        // see LiveSessionRunner's lifetime note). The card swaps itself to "Session running" / "Session
+        // ended" (it scopes the runner's per-second snapshot internally, like WorkoutInProgressCard's clock).
+        if (selectedDayOffset == 0 && (liveSessionsEnabled || activeLiveSession != null)) {
+            item {
+                LiveSessionEntryCard(
+                    onOpen = {
+                        // Only BEGIN when nothing is in flight: an active runner (running, or ended and
+                        // holding its unseen summary) is simply re-presented, never displaced — so a tap
+                        // can't silently discard a running session or a summary awaiting its "Done".
+                        if (LiveSessionRunner.active.value == null) {
+                            startOrResumeLiveSession(viewModel, context)
+                        }
+                        showLiveSession = true
+                    },
+                )
+            }
+        }
+
         // HEART RATE, the live HR thread / trend card, directly under the hero — the SAME order as the iOS
         // liquid Today (scene → heartRateSection → yourCardsSection). It carries its own live-HR thread + the
         // banked 5-minute fallback + the "connect your strap" empty state, all self-contained (its own data
         // loads), so moving it up here is a pure re-order that preserves every binding. Mirrors iOS
         // heartRateSection sitting first after the hero.
         item {
-        Box(modifier = Modifier.fillMaxWidth().staggeredAppear(5)) {
+        // #991: HeartRateTrendCard emits its SectionHeader + card as two siblings; a Box overlaid them
+        // (the header showed THROUGH the card in the v8 layout). A spaced Column stacks them instead.
+        Column(
+            modifier = Modifier.fillMaxWidth().staggeredAppear(5),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             HeartRateTrendCard(viewModel, days, selectedDay, todayDate, displayMetric, effortScale)
         }
         }
@@ -1321,7 +1358,12 @@ fun TodayScreen(
         }
         }
         item {
-        Box(modifier = Modifier.fillMaxWidth().staggeredAppear(6)) {
+        // #991: same fix as the HR card — TodayWorkoutsSection emits header + card as two siblings, so a
+        // Box overlaid them. Stack them in a spaced Column.
+        Column(
+            modifier = Modifier.fillMaxWidth().staggeredAppear(6),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             TodayWorkoutsSection(footer.recentWorkouts)
         }
         }
@@ -1389,6 +1431,20 @@ fun TodayScreen(
                     openGuide(ScoreSection.CHARGE)
                 },
             )
+        }
+    }
+
+    // LIVE SESSIONS (beta): the full-screen session dialog — the same presentation the live-workout
+    // overlay uses on Live (Dialog, usePlatformDefaultWidth = false). Dismissing it only HIDES the
+    // screen: the runner (held in LiveSessionRunner.active, ticking on the app-wide viewModelScope)
+    // keeps guarding, and the entry card above re-opens the same session. Only "End session" + the
+    // summary's "Done" (inside the screen) actually finish and clear it.
+    if (showLiveSession) {
+        Dialog(
+            onDismissRequest = { showLiveSession = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            LiveSessionScreen(vm = viewModel, onClose = { showLiveSession = false })
         }
     }
 
@@ -1515,6 +1571,85 @@ private fun WorkoutInProgressCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The compact Live Sessions entry under the hero ("Start session · BETA"). Three honest states off the
+ * process-wide [LiveSessionRunner.active]: no session → start affordance; session running → the way back
+ * into the dismissed session dialog (with a live elapsed clock); session ended but its summary not yet
+ * Done-dismissed → "See the summary". The runner's 1 Hz snapshot is collected INSIDE this card only, so
+ * the per-second tick recomposes this card, never the Today body (the WorkoutInProgressCard idiom).
+ * The whole card is one tap target; [onOpen] begins/re-presents the session dialog.
+ */
+@Composable
+private fun LiveSessionEntryCard(onOpen: () -> Unit) {
+    val active by LiveSessionRunner.active.collectAsStateWithLifecycle()
+    val runner = active
+    var running = false
+    var summaryWaiting = false
+    var elapsed = ""
+    if (runner != null) {
+        val snap by runner.snapshot.collectAsStateWithLifecycle()
+        running = !snap.ended
+        summaryWaiting = snap.ended
+        elapsed = elapsedClock(snap.elapsedSec.toLong())
+    }
+    val teal = Palette.metricCyan
+    val title = when {
+        running -> "Session running"
+        summaryWaiting -> "Session ended"
+        else -> "Start session"
+    }
+    val detail = when {
+        running -> "Guarding — silence means you're on track."
+        summaryWaiting -> "See the summary of your last session."
+        else -> "Strap-guided effort session. It only buzzes when you drift off today's band."
+    }
+
+    // liquidPress on the whole tappable card (same interactionSource on clickable + press), matching the
+    // workout-in-progress card above. Merged semantics so TalkBack reads one Button, not four stops.
+    val interaction = remember { MutableInteractionSource() }
+    NoopCard(
+        tint = teal,
+        modifier = Modifier
+            .liquidPress(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onOpen)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$title, beta. $detail"
+            },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Metrics.space12),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                Icons.Filled.TrackChanges,
+                contentDescription = null,
+                tint = teal,
+                modifier = Modifier.size(20.dp),
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Metrics.space8),
+                ) {
+                    Text(title, style = NoopType.headline, color = Palette.textPrimary)
+                    StatePill("BETA", tone = StrandTone.Accent, showsDot = false)
+                }
+                Text(detail, style = NoopType.footnote, color = Palette.textTertiary)
+            }
+            if (running) {
+                Text(elapsed, style = NoopType.number(15f), color = Palette.textPrimary)
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = Palette.textTertiary,
+                modifier = Modifier.size(Metrics.iconSmall),
+            )
         }
     }
 }

@@ -40,6 +40,11 @@ struct LiquidTodayView: View {
     @State private var showSettings = false
     @State private var showSupport = false
     @State private var synthesisExpanded = false
+    @State private var showLiveSession = false
+
+    /// Live Sessions (silent guardian) beta gate — the SAME key the Settings toggle writes. Default ON
+    /// (the entry is BETA-labelled in-UI); off removes the Start-session control entirely.
+    @AppStorage(LiveSessionPrefs.betaKey) private var liveSessionsBeta = true
 
     // day navigation (0 = today, 1 = yesterday, …)
     @State private var selectedDayOffset = 0
@@ -251,6 +256,10 @@ struct LiquidTodayView: View {
                     .liquidSheetDoneChrome { showSupport = false }
             }
         }
+        // Live Session (silent guardian, beta): the in-session screen owns the whole display — full
+        // screen on iOS (nothing should compete with the ring mid-workout), a sheet on macOS where
+        // fullScreenCover doesn't exist.
+        .liveSessionCover(isPresented: $showLiveSession)
         #if os(macOS)
         // Hide the mac window toolbar's vibrant material so the full-bleed day-of-sky reads dark + edge-to-edge
         // at the top instead of the white scroll-under-titlebar wash.
@@ -360,7 +369,45 @@ struct LiquidTodayView: View {
             LiquidWordmark()
                 .padding(.top, 30)
             heroCard.padding(.top, 22)
+            if liveSessionsBeta {
+                liveSessionStartRow.padding(.top, 10)
+            }
         }
+    }
+
+    /// One-tap Live Session start (silent guardian, beta) — sits directly under the hero scores, the
+    /// Charge its band is gated on. Same translucent chrome as the hero card so it reads as part of the
+    /// sky scene, quiet by design.
+    private var liveSessionStartRow: some View {
+        Button { showLiveSession = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(StrandPalette.metricCyan)
+                Text("Start session")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("BETA")
+                    .font(StrandFont.overlineScaled(8.5)).tracking(1.2)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .padding(.horizontal, 8).padding(.vertical, 2.5)
+                    .background(Capsule().fill(.white.opacity(0.05))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1)))
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(heroFill)
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.11), lineWidth: 1))
+            )
+        }
+        .buttonStyle(LiquidPressStyle())
+        .accessibilityLabel("Start a live session. Beta. Silent strap coaching against today's Charge.")
     }
 
     private var heroCard: some View {
@@ -1222,11 +1269,36 @@ private struct LiquidStrapBatteryRow: View {
             HStack {
                 Text("Strap battery").font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                 Spacer()
-                // #972: append "· Charging" here too, matching the Settings / Mac / Android battery pill.
-                Text(live.charging == true ? "\(Int(pct.rounded()))% · Charging" : "\(Int(pct.rounded()))%")
+                // #972: append "· Charging"; #992: append the "~X days left" runtime the v8 redesign dropped.
+                Text(batteryText(pct: pct))
                     .font(StrandFont.number(15)).foregroundStyle(StrandPalette.textPrimary)
             }
         }
+    }
+
+    /// "87%" plus a trailing "· Charging" (#972) or "· ~9 days left" runtime (#992), matching the Settings /
+    /// Mac / Android pill and the classic Today badge.
+    private func batteryText(pct: Double) -> String {
+        let base = "\(Int(pct.rounded()))%"
+        if live.charging == true { return "\(base) · Charging" }
+        if let est = estimateText { return "\(base) · \(est)" }
+        return base
+    }
+
+    /// #992: the v8 Liquid redesign dropped the "~X days left" estimate the classic Today showed (#713).
+    /// Reproduced verbatim from `TodayView.estimateText`: under 48 h show hours, at two days or more round to
+    /// days; nil (no banked discharge yet, or charging) hides it, so the row only ever shows an estimate we trust.
+    private var estimateText: String? {
+        guard live.charging != true, let est = live.batteryEstimate else { return nil }
+        let hours = est.hoursRemaining
+        guard hours.isFinite, hours > 0 else { return nil }
+        if hours < 48 {
+            return String(localized: "~\(Int(hours.rounded()))h left")
+        }
+        let days = Int((hours / 24).rounded())
+        return days == 1
+            ? String(localized: "~1 day left")
+            : String(localized: "~\(days) days left")
     }
 }
 
@@ -1261,6 +1333,21 @@ private extension View {
         if #available(iOS 16.4, *) { self.presentationCompactAdaptation(.popover) } else { self }
         #else
         self
+        #endif
+    }
+
+    /// Present the Live Session screen: fullScreenCover on iOS (the guardian owns the display mid-
+    /// workout), a plain sheet on macOS where fullScreenCover doesn't exist. The session view calls
+    /// `onClose` itself once the summary is dismissed.
+    @ViewBuilder func liveSessionCover(isPresented: Binding<Bool>) -> some View {
+        #if os(iOS)
+        self.fullScreenCover(isPresented: isPresented) {
+            LiveSessionView(onClose: { isPresented.wrappedValue = false })
+        }
+        #else
+        self.sheet(isPresented: isPresented) {
+            LiveSessionView(onClose: { isPresented.wrappedValue = false })
+        }
         #endif
     }
 }

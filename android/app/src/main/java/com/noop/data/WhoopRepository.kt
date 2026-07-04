@@ -463,6 +463,12 @@ class WhoopRepository(private val dao: WhoopDao) {
     suspend fun upsertWorkouts(rows: List<WorkoutRow>) = dao.upsertWorkouts(rows)
     suspend fun upsertAppleDaily(rows: List<AppleDaily>) = dao.upsertAppleDaily(rows)
 
+    // MARK: - Live Sessions (silent guardian, v22). The runner banks the row at start (endTs null) and
+    // again at end (totals); the summary reads the recent rows for its guarded-count / streak line.
+    suspend fun upsertLiveSession(row: LiveSessionRow) = dao.upsertLiveSession(row)
+    suspend fun recentLiveSessions(deviceId: String, limit: Int): List<LiveSessionRow> =
+        dao.recentLiveSessions(deviceId, limit)
+
     // MARK: - Lab Book markers (Swift labMarker, v17). Writing also projects the daily series into
     // metricSeries under WhoopDao.LAB_BOOK_SOURCE_ID, so Compare/Explore/Coach see markers unchanged.
     suspend fun upsertLabMarkers(rows: List<LabMarkerRow>) = dao.upsertLabMarkers(rows)

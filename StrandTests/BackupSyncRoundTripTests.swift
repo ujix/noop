@@ -13,6 +13,7 @@ import SQLite3
 final class BackupSyncRoundTripTests: XCTestCase {
 
     private var tmp: URL!
+    private var suites: [String] = []
 
     override func setUpWithError() throws {
         tmp = FileManager.default.temporaryDirectory
@@ -22,6 +23,17 @@ final class BackupSyncRoundTripTests: XCTestCase {
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: tmp)
+        for name in suites { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
+        suites = []
+    }
+
+    /// A suite-scoped UserDefaults for the settings half of a restore, so these tests NEVER write into
+    /// the test runner's `.standard` domain (which on a dev Mac is the developer's real NOOP profile).
+    private func freshDefaults() throws -> UserDefaults {
+        let name = "backupsync-test-\(UUID().uuidString)"
+        guard let d = UserDefaults(suiteName: name) else { throw TestError("no suite defaults") }
+        suites.append(name)
+        return d
     }
 
     // MARK: - Round trip: backupNow → restore returns the same rows
@@ -45,6 +57,82 @@ final class BackupSyncRoundTripTests: XCTestCase {
         }
         XCTAssertEqual(try deviceRows(in: liveDB), ["my-whoop", "watch"],
                        "Restored DB should hold exactly the backed-up rows")
+    }
+
+    // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
+
+    func testBackupWithSettingsRestoresSettingsAfterDbSwap() throws {
+        let sourceDB = tmp.appendingPathComponent("source.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["my-whoop"])
+
+        // Export with the whitelisted settings payload (what a real device writes from its defaults).
+        let backup = tmp.appendingPathComponent("with-settings.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup, settings: [
+            "profile.age": 34,
+            "profile.sex": "female",
+            "profile.weightKg": 62.5,
+            "profile.heightCm": 168.0,
+            "profile.hrMax": 191,
+            "units.system": "imperial",
+        ])
+
+        // Restore into a throwaway DB path AND a suite-scoped defaults (never the runner's real domain).
+        let defaults = try freshDefaults()
+        let liveDB = tmp.appendingPathComponent("live.sqlite")
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, settingsDefaults: defaults)
+
+        guard case .imported = result else {
+            return XCTFail("Restore should succeed, got \(result)")
+        }
+        XCTAssertEqual(try deviceRows(in: liveDB), ["my-whoop"], "DB half still round-trips")
+        XCTAssertEqual(defaults.object(forKey: "profile.age") as? Int, 34)
+        XCTAssertEqual(defaults.string(forKey: "profile.sex"), "female")
+        XCTAssertEqual(defaults.object(forKey: "profile.weightKg") as? Double, 62.5)
+        XCTAssertEqual(defaults.object(forKey: "profile.heightCm") as? Double, 168.0)
+        XCTAssertEqual(defaults.object(forKey: "profile.hrMaxOverride") as? Int, 191,
+                       "Canonical profile.hrMax lands on ProfileStore's profile.hrMaxOverride key")
+        XCTAssertEqual(defaults.string(forKey: "units.system"), "imperial")
+    }
+
+    func testLegacySingleEntryZipStillRestoresAndAppliesNoSettings() throws {
+        // A pre-#1000 backup: DB entry only (writeBackupForTesting with settings nil).
+        let sourceDB = tmp.appendingPathComponent("source.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["legacy-strap"])
+        let backup = tmp.appendingPathComponent("legacy.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup)
+
+        let defaults = try freshDefaults()
+        let liveDB = tmp.appendingPathComponent("live.sqlite")
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, settingsDefaults: defaults)
+
+        guard case .imported = result else {
+            return XCTFail("A legacy single-entry ZIP must restore exactly as today, got \(result)")
+        }
+        XCTAssertEqual(try deviceRows(in: liveDB), ["legacy-strap"])
+        XCTAssertNil(defaults.object(forKey: "profile.age"), "No settings entry → defaults untouched")
+        XCTAssertNil(defaults.object(forKey: "units.system"))
+    }
+
+    func testSettingsAreNotAppliedWhenTheRestoreIsRejected() throws {
+        // A foreign (Room) DB zipped together WITH a settings payload: the origin gate refuses the
+        // restore, so the settings must not leak through either ("apply AFTER the DB swap succeeds").
+        let foreign = tmp.appendingPathComponent("foreign.sqlite")
+        try makeForeignDatabase(at: foreign)
+        let backup = tmp.appendingPathComponent("foreign.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: foreign, to: backup,
+                                             settings: ["profile.age": 99, "profile.weightKg": 40.0])
+
+        let defaults = try freshDefaults()
+        let liveDB = tmp.appendingPathComponent("live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, settingsDefaults: defaults)
+        guard case .failure = result else {
+            return XCTFail("Foreign backup must still be rejected, got \(result)")
+        }
+        XCTAssertNil(defaults.object(forKey: "profile.age"),
+                     "A rejected restore must never apply the backup's settings")
+        XCTAssertEqual(try deviceRows(in: liveDB), ["original"], "Live DB untouched")
     }
 
     // MARK: - Foreign SQLite is rejected, live DB untouched

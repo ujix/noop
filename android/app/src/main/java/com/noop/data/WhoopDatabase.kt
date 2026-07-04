@@ -46,8 +46,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PairedDeviceRow::class,
         DayOwnershipRow::class,
         LabMarkerRow::class,
+        LiveSessionRow::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = false,
 )
 abstract class WhoopDatabase : RoomDatabase() {
@@ -400,6 +401,31 @@ abstract class WhoopDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v15 -> v16: ADDITIVE, adds the `liveSession` table (Live Sessions). One row per silent-guardian
+         * coaching session, natural key (deviceId, startTs); `endTs` null while in progress. Twin of the Swift
+         * WhoopStore v22 migration. CREATE TABLE only (no existing data touched). The SQL MUST match Room's
+         * generated schema for [LiveSessionRow] exactly: nullable `endTs`/`chargeAtStart` (no NOT NULL), the
+         * rest NOT NULL (Kotlin non-null, no SQL DEFAULT), composite PRIMARY KEY (deviceId, startTs) in
+         * declaration order. No destructive fallback (see the class doc). Exposed as [LIVE_SESSION_MIGRATION_SQL]
+         * so a plain-JVM unit test can pin the shape without Robolectric.
+         * See docs/superpowers/specs/2026-07-04-live-sessions-design.md.
+         */
+        internal val LIVE_SESSION_MIGRATION_SQL: List<String> = listOf(
+            "CREATE TABLE IF NOT EXISTS `liveSession` (`deviceId` TEXT NOT NULL, " +
+                "`startTs` INTEGER NOT NULL, `endTs` INTEGER, `chargeAtStart` REAL, " +
+                "`floorBpm` REAL NOT NULL, `ceilingBpm` REAL NOT NULL, `inBandSec` REAL NOT NULL, " +
+                "`belowSec` REAL NOT NULL, `aboveSec` REAL NOT NULL, `pushCount` INTEGER NOT NULL, " +
+                "`easeCount` INTEGER NOT NULL, `hrSource` TEXT NOT NULL, " +
+                "PRIMARY KEY(`deviceId`, `startTs`))",
+        )
+
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (stmt in LIVE_SESSION_MIGRATION_SQL) db.execSQL(stmt)
+            }
+        }
+
         private fun build(appContext: Context): WhoopDatabase =
             Room.databaseBuilder(appContext, WhoopDatabase::class.java, DB_NAME)
                 // Real additive migration, NO destructive fallback (see the class doc): with
@@ -409,7 +435,7 @@ abstract class WhoopDatabase : RoomDatabase() {
                     MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                     MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
                     MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
-                    MIGRATION_14_15,
+                    MIGRATION_14_15, MIGRATION_15_16,
                 )
                 .build()
     }

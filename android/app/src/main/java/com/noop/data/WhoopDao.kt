@@ -65,6 +65,14 @@ interface WhoopDao : DeviceRegistryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertSleepState(rows: List<SleepStateSampleEntity>): List<Long>
 
+    /** Upsert one Live Session (v22). Natural key (deviceId, startTs) — start (endTs null) then end. */
+    @Upsert
+    suspend fun upsertLiveSession(row: LiveSessionRow)
+
+    /** Most-recent Live Sessions first, for the look-back summary + streak. */
+    @Query("SELECT * FROM liveSession WHERE deviceId = :deviceId ORDER BY startTs DESC LIMIT :limit")
+    suspend fun recentLiveSessions(deviceId: String, limit: Int): List<LiveSessionRow>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertResp(rows: List<RespSample>): List<Long>
 

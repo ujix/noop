@@ -137,6 +137,11 @@ struct RootTabView: View {
                 // in-exercise screen. Calm sheet easing, matching the other quick-action presents.
                 withAnimation(Self.sheetEase) { quickAction = .live }
                 router.requestedDestination = nil
+            case .liveSession:
+                // Live Sessions is presented from Today's own Start entry (a cover, not a routed sheet),
+                // so a deep-link lands on the Today tab where that entry lives.
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
+                router.requestedDestination = nil
             case nil:
                 break
             }
@@ -168,6 +173,9 @@ struct RootTabView: View {
                 // .activeWorkout routes through the quick-action Live sheet (handled above); this keeps the
                 // switch exhaustive and falls back to Live if it ever reaches the pillar host.
                 case .activeWorkout: LiveView()
+                // .liveSession routes to the Today tab (handled above — its Start entry owns the cover);
+                // this keeps the switch exhaustive and falls back to Today if it ever reaches the host.
+                case .liveSession: LiquidTodayView()
                 }
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())

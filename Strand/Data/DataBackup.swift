@@ -13,7 +13,9 @@ import ZIPFoundation
 ///
 /// NOOP keeps everything in one SQLite file (`<AppSupport>/OpenWhoop/whoop.sqlite`, plus the
 /// `-wal`/`-shm` WAL sidecars while the store is open). Export checkpoints the WAL (so the
-/// single file is whole), then wraps the SQLite in a single-entry ZIP written as `.noopbak`.
+/// single file is whole), then wraps the SQLite in a ZIP written as `.noopbak`, alongside a
+/// small `settings.json` entry (#1000) carrying the whitelisted profile/display settings (see
+/// `BackupSettings`) so a restore also brings back weight/height/units, not just the rows.
 /// ZIP deflate typically cuts a 100 MB+ SQLite backup to 10–20 MB. The format is a standard
 /// ZIP — users can rename `.noopbak` → `.zip` and extract the SQLite manually on any OS.
 ///
@@ -86,7 +88,9 @@ enum DataBackup {
             if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
             // Reading the whole SQLite and DEFLATE-compressing it is multi-second on a big library;
             // run it off the main actor so the UI never beach-balls. Only file paths cross the hop.
-            try await Task.detached(priority: .utility) { try writeBackupZip(dbURL: dbURL, to: dest) }.value
+            try await Task.detached(priority: .utility) {
+                try writeBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
+            }.value
             return .exported(dest)
         } catch {
             return .failure(String(localized: "Export failed: \(error.localizedDescription)"))
@@ -99,7 +103,9 @@ enum DataBackup {
         do {
             if fm.fileExists(atPath: staged.path) { try fm.removeItem(at: staged) }
             // Off the main actor: same reason as the macOS branch (heavy read + DEFLATE). Only paths hop.
-            try await Task.detached(priority: .utility) { try writeBackupZip(dbURL: dbURL, to: staged) }.value
+            try await Task.detached(priority: .utility) {
+                try writeBackupZip(dbURL: dbURL, to: staged, settingsJSON: currentSettingsJSON())
+            }.value
         } catch {
             return .failure(String(localized: "Export failed: \(error.localizedDescription)"))
         }
@@ -108,13 +114,33 @@ enum DataBackup {
         #endif
     }
 
-    /// Write the live SQLite at `dbURL` into a fresh single-entry deflate ZIP at `dest`, under the
-    /// canonical entry name `noop-backup.sqlite`. The entry name and deflate compression match the
-    /// Android exporter byte-for-byte at the container level, so a `.noopbak` produced on either
-    /// platform imports on the other. Mirrors the `Archive` idiom in `WhoopCsvExporter`.
-    private static func writeBackupZip(dbURL: URL, to dest: URL) throws {
+    /// Write the live SQLite at `dbURL` into a fresh deflate ZIP at `dest`: the DB under the canonical
+    /// entry name `noop-backup.sqlite`, plus (#1000) an optional second entry `settings.json` carrying
+    /// the whitelisted profile/display settings, so a restore brings back weight/height/units and not
+    /// just the rows. Entry names, entry ORDER (DB first — older importers stop at the first `.sqlite`
+    /// entry) and deflate compression match the Android exporter byte-for-byte at the container level,
+    /// so a `.noopbak` produced on either platform imports on the other. `settingsJSON == nil` writes
+    /// the legacy single-entry ZIP. Mirrors the `Archive` idiom in `WhoopCsvExporter`.
+    private static func writeBackupZip(dbURL: URL, to dest: URL, settingsJSON: Data?) throws {
         let archive = try Archive(url: dest, accessMode: .create)
         try archive.addEntry(with: backupEntryName, fileURL: dbURL, compressionMethod: .deflate)
+        guard let settingsJSON else { return }
+        // Stage the JSON through a temp file so the settings entry uses the exact same file-URL
+        // addEntry idiom as the DB entry (one container code path, no provider-API variant to drift).
+        let fm = FileManager.default
+        let tmpJSON = fm.temporaryDirectory
+            .appendingPathComponent("noop-settings-\(UUID().uuidString).json")
+        try settingsJSON.write(to: tmpJSON)
+        defer { try? fm.removeItem(at: tmpJSON) }
+        try archive.addEntry(with: BackupSettings.entryName, fileURL: tmpJSON, compressionMethod: .deflate)
+    }
+
+    /// This device's whitelisted profile/display settings (see `BackupSettings.whitelist`) as the
+    /// `settings.json` payload, or nil when nothing whitelisted was ever set (a fresh install then
+    /// exports a legacy DB-only ZIP, which is the right degrade). UserDefaults is thread-safe, so
+    /// the detached export tasks may call this off the main actor.
+    private static func currentSettingsJSON() -> Data? {
+        BackupSettings.encode(BackupSettings.snapshot(from: .standard))
     }
 
     /// (Backup & Sync) Write a `.noopbak` to a SPECIFIC `dest` URL with NO save panel: the folder /
@@ -139,7 +165,7 @@ enum DataBackup {
         do {
             let fm = FileManager.default
             if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
-            try writeBackupZip(dbURL: dbURL, to: dest)
+            try writeBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
             return .exported(dest)
         } catch {
             return .failure(String(localized: "Backup failed: \(error.localizedDescription)"))
@@ -148,11 +174,15 @@ enum DataBackup {
 
     /// Test seam: write a `.noopbak` for an EXPLICIT source database (no checkpoint, no `StorePaths`),
     /// so a unit test can round-trip a throwaway SQLite through the exact ZIP container the app writes.
-    /// Not used by app code; production goes through `writeBackup(checkpoint:to:)`.
-    static func writeBackupForTesting(databaseAt dbURL: URL, to dest: URL) throws {
+    /// `settings` (canonical `BackupSettings` keys) adds the `settings.json` entry; nil writes the
+    /// legacy single-entry ZIP — tests cover both shapes. Not used by app code; production goes
+    /// through `writeBackup(checkpoint:to:)`.
+    static func writeBackupForTesting(databaseAt dbURL: URL, to dest: URL,
+                                      settings: [String: Any]? = nil) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
-        try writeBackupZip(dbURL: dbURL, to: dest)
+        try writeBackupZip(dbURL: dbURL, to: dest,
+                           settingsJSON: settings.flatMap { BackupSettings.encode($0) })
     }
 
     // MARK: - Import
@@ -216,7 +246,10 @@ enum DataBackup {
     /// The hardened restore core, with the destination database path injected so it is unit-testable
     /// against a throwaway DB (real file I/O, never the user's live store). Behaviour is identical to
     /// the previous `runImport` body; only the picker and path-resolution moved out to the callers.
-    static func restore(from pickedSource: URL, toDatabaseAt dbPath: String) -> BackupResult {
+    /// `settingsDefaults` is where a `settings.json` entry (#1000) is re-applied — injected for the
+    /// same reason as `dbPath` (tests use a suite-scoped UserDefaults, never the runner's real domain).
+    static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
+                        settingsDefaults: UserDefaults = .standard) -> BackupResult {
         // If the picked file is a .noopbak ZIP, extract the SQLite entry to a temp dir first.
         // Legacy plain-SQLite files fall straight through. The extracted dir is cleaned up below.
         let fm = FileManager.default
@@ -303,6 +336,19 @@ enum DataBackup {
                     try? fm.copyItem(at: sidecar, to: dbURL)
                 }
                 return .failure(String(localized: "Import failed. Your existing data was kept. \(error.localizedDescription)"))
+            }
+
+            // #1000: re-apply the backup's whitelisted profile/display settings (weight, height, age,
+            // sex, HR-max override, unit prefs) — but only NOW, after the DB swap landed. A failed or
+            // rolled-back restore returns above and never touches settings. Legacy single-entry ZIPs
+            // and plain-SQLite backups have no `settings.json` (extractedDir nil / entry absent) and
+            // restore exactly as before — no settings, no error. A malformed settings entry degrades
+            // to "fewer keys applied" inside BackupSettings.decode; it can never fail the restore.
+            if let extractedDir {
+                let settingsURL = extractedDir.appendingPathComponent(BackupSettings.entryName)
+                if let data = try? Data(contentsOf: settingsURL) {
+                    BackupSettings.apply(BackupSettings.decode(data), to: settingsDefaults)
+                }
             }
             return .imported(sidecar: sidecar)
         } catch {
